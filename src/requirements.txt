@@ -151,8 +151,6 @@ python-dotenv==1.1.1
     #   -r requirements.in
     #   mcp
     #   pydantic-settings
-python-json-logger==4.0.0
-    # via -r requirements.in
 python-multipart==0.0.20
     # via
     #   -r requirements.in

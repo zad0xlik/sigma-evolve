@@ -104,7 +104,7 @@ Set these in the App Platform console or app spec (mark as encrypted):
 ```bash
 DATABASE_URL=postgresql://user:password@your-db-host:5432/memories
 QDRANT_URL=http://your-qdrant-instance:6333
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=sk-your-key-here
 USER_ID=default-user
 DEFAULT_APP_ID=default-app
 ```
@@ -113,8 +113,8 @@ DEFAULT_APP_ID=default-app
 
 ```bash
 LOG_LEVEL=INFO
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_APP_TOKEN=xapp-...
+SLACK_BOT_TOKEN=xoxb-your-bot-token
+SLACK_APP_TOKEN=xapp-your-app-token
 ```
 
 ## Deployment Process
@@ -234,7 +234,7 @@ alembic upgrade head
 
 ### Database
 - Managed PostgreSQL: Starting at $15/month
-- Shared PostgreSQL (as used here): Variable cost
+- Shared PostgreSQL: Variable cost
 
 ## Comparison with AWS
 
