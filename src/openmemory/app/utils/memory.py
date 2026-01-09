@@ -236,27 +236,79 @@ def get_default_memory_config():
     
     print(f"Auto-detected vector store: {vector_store_provider} with config: {vector_store_config}")
     
-    return {
-        "vector_store": {
-            "provider": vector_store_provider,
-            "config": vector_store_config
-        },
-        "llm": {
+    # Detect LLM provider based on environment variables
+    # Priority: OPENROUTER > OPENAI
+    if os.environ.get('OPENROUTER_API_KEY'):
+        print("Detected OPENROUTER_API_KEY - using OpenRouter configuration")
+        llm_config = {
+            "provider": "openai",  # OpenRouter is OpenAI-compatible
+            "config": {
+                "model": os.environ.get('MODEL', 'openai/gpt-4o-mini'),
+                "temperature": 0.1,
+                "max_tokens": 2000,
+                "api_key": os.environ.get('OPENROUTER_API_KEY'),
+                "openai_base_url": os.environ.get('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1')
+            }
+        }
+        embedder_config = {
+            "provider": "openai",
+            "config": {
+                "model": os.environ.get('EMBEDDINGS_MODEL', 'openai/text-embedding-3-small'),
+                "api_key": os.environ.get('OPENROUTER_API_KEY'),
+                "openai_base_url": os.environ.get('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1')
+            }
+        }
+    elif os.environ.get('OPENAI_API_KEY'):
+        print("Detected OPENAI_API_KEY - using direct OpenAI configuration")
+        llm_config = {
+            "provider": "openai",
+            "config": {
+                "model": os.environ.get('MODEL', 'gpt-4o-mini'),
+                "temperature": 0.1,
+                "max_tokens": 2000,
+                "api_key": os.environ.get('OPENAI_API_KEY'),
+            }
+        }
+        # Only add base_url if explicitly set (for custom OpenAI-compatible endpoints)
+        if os.environ.get('OPENAI_BASE_URL'):
+            llm_config["config"]["openai_base_url"] = os.environ.get('OPENAI_BASE_URL')
+        
+        embedder_config = {
+            "provider": "openai",
+            "config": {
+                "model": os.environ.get('EMBEDDINGS_MODEL', 'text-embedding-3-small'),
+                "api_key": os.environ.get('OPENAI_API_KEY'),
+            }
+        }
+        if os.environ.get('OPENAI_BASE_URL'):
+            embedder_config["config"]["openai_base_url"] = os.environ.get('OPENAI_BASE_URL')
+    else:
+        print("Warning: No API key detected (OPENROUTER_API_KEY or OPENAI_API_KEY)")
+        print("Memory operations requiring LLM will fail. Set one of these in your .env file.")
+        llm_config = {
             "provider": "openai",
             "config": {
                 "model": "gpt-4o-mini",
                 "temperature": 0.1,
                 "max_tokens": 2000,
-                "api_key": "env:OPENAI_API_KEY"
+                "api_key": ""  # Empty - will cause errors if LLM is used
             }
-        },
-        "embedder": {
+        }
+        embedder_config = {
             "provider": "openai",
             "config": {
                 "model": "text-embedding-3-small",
-                "api_key": "env:OPENAI_API_KEY"
+                "api_key": ""  # Empty - will cause errors if embeddings are used
             }
+        }
+    
+    return {
+        "vector_store": {
+            "provider": vector_store_provider,
+            "config": vector_store_config
         },
+        "llm": llm_config,
+        "embedder": embedder_config,
         "version": "v1.1"
     }
 
@@ -265,16 +317,40 @@ def _parse_environment_variables(config_dict):
     """
     Parse environment variables in config values.
     Converts 'env:VARIABLE_NAME' to actual environment variable values.
+    
+    Special handling for OpenRouter:
+    - env:OPENAI_API_KEY → checks OPENROUTER_API_KEY first, then OPENAI_API_KEY
+    - env:OPENAI_BASE_URL → checks OPENROUTER_BASE_URL first, then OPENAI_BASE_URL
     """
     if isinstance(config_dict, dict):
         parsed_config = {}
         for key, value in config_dict.items():
             if isinstance(value, str) and value.startswith("env:"):
                 env_var = value.split(":", 1)[1]
-                env_value = os.environ.get(env_var)
+                env_value = None
+                
+                # Special handling for OpenRouter compatibility
+                if env_var == "OPENAI_API_KEY":
+                    # Try OpenRouter first, then OpenAI
+                    env_value = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+                    if os.environ.get("OPENROUTER_API_KEY"):
+                        print(f"Loaded OPENROUTER_API_KEY from environment for {key}")
+                    elif os.environ.get("OPENAI_API_KEY"):
+                        print(f"Loaded OPENAI_API_KEY from environment for {key}")
+                elif env_var == "OPENAI_BASE_URL":
+                    # Try OpenRouter first, then OpenAI
+                    env_value = os.environ.get("OPENROUTER_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+                    if os.environ.get("OPENROUTER_BASE_URL"):
+                        print(f"Loaded OPENROUTER_BASE_URL from environment for {key}")
+                    elif os.environ.get("OPENAI_BASE_URL"):
+                        print(f"Loaded OPENAI_BASE_URL from environment for {key}")
+                else:
+                    env_value = os.environ.get(env_var)
+                    if env_value:
+                        print(f"Loaded {env_var} from environment for {key}")
+                
                 if env_value:
                     parsed_config[key] = env_value
-                    print(f"Loaded {env_var} from environment for {key}")
                 else:
                     print(f"Warning: Environment variable {env_var} not found, keeping original value")
                     parsed_config[key] = value
