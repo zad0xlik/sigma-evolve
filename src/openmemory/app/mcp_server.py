@@ -28,6 +28,13 @@ from app.models import Memory, MemoryAccessLog, MemoryState, MemoryStatusHistory
 from app.utils.db import get_user_and_app
 from app.utils.memory import get_memory_client
 from app.utils.permissions import check_memory_access_permissions
+from app.utils.graphiti import (
+    Decision,
+    add_decision as graphiti_add_decision,
+    search_decisions as graphiti_search_decisions,
+    is_graphiti_enabled,
+    check_graphiti_health,
+)
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.routing import APIRouter
@@ -650,6 +657,262 @@ async def delete_all_memories() -> str:
     except Exception as e:
         logging.exception(f"Error deleting memories: {e}")
         return f"Error deleting memories: {e}"
+
+
+# =============================================================================
+# SIGMA Phase 1: Knowledge Graph Tools (Decision Tracking)
+# =============================================================================
+
+@mcp.tool(description="Track a technical or architectural decision. Use this to record why choices were made, what alternatives were considered, and what files are affected. This creates a permanent record in the knowledge graph that can be queried later with search_decisions.")
+async def track_decision(
+    title: str,
+    description: str,
+    rationale: str,
+    project: str = None,
+    related_files: str = None,
+    alternatives_considered: str = None,
+    tags: str = None,
+) -> str:
+    """
+    Track a technical decision in the SIGMA knowledge graph.
+    
+    This enables queries like "Why did we decide to use Redis?" with full
+    historical context including who made the decision, when, and why.
+    
+    Args:
+        title: Short title for the decision (e.g., "Use Redis for caching")
+        description: Detailed description of the decision
+        rationale: Why this decision was made - the reasoning behind it
+        project: Optional project name this decision applies to
+        related_files: Optional comma-separated list of related file paths
+        alternatives_considered: Optional comma-separated list of alternatives that were considered
+        tags: Optional comma-separated list of tags (e.g., "caching,performance,database")
+    
+    Returns:
+        JSON string with the result of tracking the decision
+    """
+    uid = user_id_var.get(None)
+    client_name = client_name_var.get(None)
+    
+    if not uid:
+        return json.dumps({"error": "user_id not provided"})
+    if not client_name:
+        return json.dumps({"error": "client_name not provided"})
+    
+    # Check if Graphiti is enabled
+    if not is_graphiti_enabled():
+        return json.dumps({
+            "error": "Knowledge graph is disabled",
+            "message": "Set GRAPHITI_ENABLED=true to enable decision tracking",
+            "fallback": "Decision not stored, but you can still use add_memories for basic storage"
+        })
+    
+    try:
+        # Parse comma-separated strings into lists
+        files_list = [f.strip() for f in related_files.split(",")] if related_files else []
+        alternatives_list = [a.strip() for a in alternatives_considered.split(",")] if alternatives_considered else []
+        tags_list = [t.strip() for t in tags.split(",")] if tags else []
+        
+        # Create Decision object
+        decision = Decision(
+            title=title,
+            description=description,
+            rationale=rationale,
+            project=project,
+            related_files=files_list,
+            alternatives_considered=alternatives_list,
+            tags=tags_list,
+            created_by=uid,
+            source="manual",
+        )
+        
+        # Add to knowledge graph
+        result = await graphiti_add_decision(
+            decision=decision,
+            user_id=uid,
+            client_name=client_name,
+        )
+        
+        if result:
+            # Also store in regular memory for redundancy and fallback search
+            memory_client = get_memory_client_safe()
+            if memory_client:
+                memory_text = f"Decision: {title}\n\nDescription: {description}\n\nRationale: {rationale}"
+                if project:
+                    memory_text += f"\n\nProject: {project}"
+                if files_list:
+                    memory_text += f"\n\nRelated Files: {', '.join(files_list)}"
+                
+                try:
+                    db = SessionLocal()
+                    try:
+                        user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
+                        memory_client.add(
+                            memory_text,
+                            user_id=uid,
+                            metadata={
+                                "source_app": "openmemory",
+                                "mcp_client": client_name,
+                                "type": "decision",
+                                "decision_title": title,
+                                "project": project,
+                                "tags": tags_list,
+                            }
+                        )
+                    finally:
+                        db.close()
+                except Exception as mem_error:
+                    logging.warning(f"Failed to store decision in memory system: {mem_error}")
+            
+            return json.dumps({
+                "status": "success",
+                "message": f"Decision '{title}' tracked successfully",
+                "decision": decision.to_dict(),
+                "knowledge_graph": result,
+            }, indent=2, default=str)
+        else:
+            return json.dumps({
+                "status": "partial",
+                "message": f"Decision '{title}' was not stored in knowledge graph (Graphiti unavailable)",
+                "decision": decision.to_dict(),
+                "note": "Decision was stored in memory system only"
+            }, indent=2, default=str)
+            
+    except Exception as e:
+        logging.exception(f"Error tracking decision: {e}")
+        return json.dumps({
+            "error": f"Failed to track decision: {str(e)}"
+        })
+
+
+@mcp.tool(description="Search for past technical decisions. Query the knowledge graph to find decisions that were made, including their rationale, alternatives considered, and temporal context. Useful for questions like 'Why did we choose Redis?' or 'What decisions were made about authentication?'")
+async def search_decisions(
+    query: str,
+    project: str = None,
+    limit: int = 10,
+) -> str:
+    """
+    Search for past decisions in the SIGMA knowledge graph.
+    
+    This enables temporal queries like "Why did we decide to use Redis?"
+    or "What database decisions were made in the last 6 months?"
+    
+    Args:
+        query: Search query (e.g., "caching", "database choice", "Redis")
+        project: Optional project name to filter results
+        limit: Maximum number of results to return (default: 10)
+    
+    Returns:
+        JSON string with matching decisions and their context
+    """
+    uid = user_id_var.get(None)
+    client_name = client_name_var.get(None)
+    
+    if not uid:
+        return json.dumps({"error": "user_id not provided"})
+    if not client_name:
+        return json.dumps({"error": "client_name not provided"})
+    
+    results = {
+        "query": query,
+        "project_filter": project,
+        "knowledge_graph_results": [],
+        "memory_results": [],
+    }
+    
+    # Try knowledge graph search first
+    if is_graphiti_enabled():
+        try:
+            graph_results = await graphiti_search_decisions(
+                query=query,
+                project=project,
+                limit=limit,
+            )
+            results["knowledge_graph_results"] = graph_results
+            results["knowledge_graph_status"] = "success"
+        except Exception as e:
+            logging.warning(f"Knowledge graph search failed: {e}")
+            results["knowledge_graph_status"] = f"error: {str(e)}"
+    else:
+        results["knowledge_graph_status"] = "disabled"
+    
+    # Also search in regular memory for fallback/additional results
+    try:
+        memory_client = get_memory_client_safe()
+        if memory_client:
+            db = SessionLocal()
+            try:
+                user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
+                
+                # Search with decision-related query
+                search_query = f"decision {query}"
+                embeddings = memory_client.embedding_model.embed(search_query, "search")
+                
+                hits = memory_client.vector_store.search(
+                    query=search_query,
+                    vectors=embeddings,
+                    limit=limit,
+                    filters={"user_id": uid}
+                )
+                
+                memory_results = []
+                for h in hits:
+                    payload = h.payload or {}
+                    metadata = payload.get("metadata", {})
+                    
+                    # Filter for decision-type memories if possible
+                    if metadata.get("type") == "decision" or "decision" in payload.get("data", "").lower():
+                        memory_results.append({
+                            "id": h.id,
+                            "content": payload.get("data"),
+                            "score": h.score,
+                            "decision_title": metadata.get("decision_title"),
+                            "project": metadata.get("project"),
+                            "tags": metadata.get("tags", []),
+                        })
+                
+                results["memory_results"] = memory_results
+                results["memory_status"] = "success"
+            finally:
+                db.close()
+        else:
+            results["memory_status"] = "unavailable"
+    except Exception as e:
+        logging.warning(f"Memory search failed: {e}")
+        results["memory_status"] = f"error: {str(e)}"
+    
+    # Combine and format response
+    total_results = len(results.get("knowledge_graph_results", [])) + len(results.get("memory_results", []))
+    
+    if total_results == 0:
+        results["message"] = f"No decisions found matching '{query}'"
+        if not is_graphiti_enabled():
+            results["hint"] = "Knowledge graph is disabled. Enable GRAPHITI_ENABLED=true for better decision tracking."
+    else:
+        results["message"] = f"Found {total_results} decision(s) matching '{query}'"
+    
+    return json.dumps(results, indent=2, default=str)
+
+
+@mcp.tool(description="Check the health status of the SIGMA knowledge graph system. Returns information about Neo4j connectivity and Graphiti status.")
+async def check_knowledge_graph_status() -> str:
+    """
+    Check the health of the SIGMA knowledge graph system.
+    
+    Returns:
+        JSON string with health status information
+    """
+    try:
+        health = await check_graphiti_health()
+        return json.dumps({
+            "knowledge_graph": health,
+            "feature_flag": is_graphiti_enabled(),
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({
+            "status": "error",
+            "error": str(e)
+        })
 
 
 @mcp_router.get("/{client_name}/sse/{user_id}")

@@ -9,12 +9,12 @@ flowchart TB
         PG[PostgreSQL]
         QD[Qdrant]
         SLACK[Slack SDK]
-        OPENAI[OpenAI API]
     end
     
-    subgraph Adding["Phase 1: Knowledge Graph 🔄"]
-        GRAPHITI[Graphiti Core]
-        NEO[Neo4j]
+    subgraph Phase1["Phase 1: Knowledge Graph ✅"]
+        GRAPHITI[Graphiti 0.25.3]
+        NEO[Neo4j 5.26]
+        OR[OpenRouter]
     end
     
     subgraph Future["Phase 2: Intelligence 📋"]
@@ -23,7 +23,7 @@ flowchart TB
         PATTERN[Pattern Learner]
     end
     
-    Current --> Adding --> Future
+    Current --> Phase1 --> Future
 ```
 
 ## Core Technologies
@@ -41,10 +41,11 @@ flowchart TB
 |----------|---------|--------|
 | PostgreSQL 15+ | Source of truth, relational data | ✅ Active |
 | Qdrant | Vector similarity search | ✅ Active |
-| Neo4j | Knowledge graph, temporal entities | 🔄 Adding |
+| Neo4j 5.26 | Knowledge graph, temporal entities | ✅ Active |
 
 ### Knowledge Graph
-- **Graphiti**: Temporal knowledge graph framework
+- **Graphiti 0.25.3**: Temporal knowledge graph framework
+  - Uses `LLMConfig` and `OpenAIEmbedderConfig` (v0.25+ API)
   - Entity extraction from text
   - Relationship mapping with temporal metadata
   - Bi-temporal query support
