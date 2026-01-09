@@ -142,13 +142,13 @@ timeline
     
     section Foundation
         Complete ✅ : PostgreSQL + Qdrant
-                   : MCP Server with 7 tools
+                   : MCP Server with 10 tools
                    : Multi-cloud deployment
     
     section Phase 1
-        Knowledge Graph 🔄 : Graphiti + Neo4j
-                          : Decision tracking
-                          : Temporal queries
+        Complete ✅ : Graphiti + Neo4j
+                   : Decision tracking
+                   : Temporal queries
     
     section Phase 2
         Developer Intel 📋 : Git integration
@@ -161,22 +161,24 @@ timeline
                        : Morning briefings
 ```
 
-### Current Features (Foundation)
+### Current Features (Foundation + Phase 1)
 
 | Category | Feature | Status |
 |----------|---------|--------|
 | **Memory** | Add, search, list, delete memories | ✅ Complete |
 | **Storage** | PostgreSQL + Qdrant vector search | ✅ Complete |
-| **MCP Server** | 7 tools with SSE transport | ✅ Complete |
+| **MCP Server** | 10 tools with SSE transport | ✅ Complete |
 | **Multi-tenancy** | User/app management with ACL | ✅ Complete |
 | **Integrations** | Slack message tracking | ✅ Complete |
 | **Deployment** | Docker, AWS ECS, DigitalOcean | ✅ Complete |
+| **Knowledge Graph** | Neo4j + Graphiti 0.25.3 | ✅ Complete |
+| **Decision Tracking** | `track_decision`, `search_decisions` tools | ✅ Complete |
+| **Temporal Queries** | Search decisions with time context | ✅ Complete |
 
 ### Coming Soon
 
 | Phase | Features |
 |-------|----------|
-| **Phase 1** | Neo4j knowledge graph, `track_decision` tool, temporal queries |
 | **Phase 2** | Git integration, pattern learning, `ingest_project` tool |
 | **Phase 3** | Cross-project search, autonomous research, morning briefings |
 
@@ -191,14 +193,47 @@ cd sigma-evolve
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your API keys (OpenAI for embeddings)
+# Edit .env with your settings:
+#   - LLM_PROVIDER: openai, openrouter, or ollama
+#   - MODEL: your preferred model (e.g., gpt-4o-mini, openai/gpt-4o-mini)
+#   - API keys for your chosen provider
 
-# Start services
-cd docker
-docker compose up -d
+# Start all services (PostgreSQL, Qdrant, Neo4j, main-service)
+docker compose -f docker/docker-compose.yaml up -d --build
+
+# Or start individual services
+docker compose -f docker/docker-compose.yaml up -d postgres qdrant neo4j
+docker compose -f docker/docker-compose.yaml up -d main-service
 ```
 
-The SIGMA server will be available at `http://localhost:8000`
+### Access Points
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| **SIGMA API** | http://localhost:8000 | REST API & MCP Server |
+| **API Docs** | http://localhost:8000/docs | OpenAPI / Swagger UI |
+| **Health Check** | http://localhost:8000/health | Service health status |
+| **Neo4j Browser** | http://localhost:7474 | Knowledge graph UI (login: `neo4j`/`sigmapassword`) |
+| **Qdrant Dashboard** | http://localhost:6333/dashboard | Vector search management |
+
+### Verify Services
+
+```bash
+# Check all services are running
+docker compose -f docker/docker-compose.yaml ps
+
+# Test API health
+curl http://localhost:8000/health
+
+# View logs
+docker compose -f docker/docker-compose.yaml logs -f main-service
+
+# Stop all services
+docker compose -f docker/docker-compose.yaml down
+
+# Stop and remove volumes (clean slate)
+docker compose -f docker/docker-compose.yaml down -v
+```
 
 ### Configure Your MCP Client
 
@@ -217,15 +252,18 @@ Add SIGMA to your MCP client configuration (e.g., Cline, Claude Desktop):
 
 ### Available MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `add_memories` | Store memories with automatic embedding generation |
-| `search_memory` | Semantic search across your knowledge base |
-| `list_memories` | Retrieve accessible memories with filtering |
-| `delete_all_memories` | Bulk deletion with audit trail |
-| `list_all_apps` | View registered applications |
-| `list_all_users` | View registered users |
-| `get_stats` | Get statistics and health status |
+| Tool | Description | Phase |
+|------|-------------|-------|
+| `add_memories` | Store memories with automatic embedding generation | Foundation |
+| `search_memory` | Semantic search across your knowledge base | Foundation |
+| `list_memories` | Retrieve accessible memories with filtering | Foundation |
+| `delete_all_memories` | Bulk deletion with audit trail | Foundation |
+| `load_slack_channel` | Import Slack channel history | Foundation |
+| `search_slack_channels` | Search available Slack channels | Foundation |
+| `sync_vector_store` | Sync Qdrant from PostgreSQL | Foundation |
+| `track_decision` | Store decisions in knowledge graph with context | Phase 1 |
+| `search_decisions` | Search decisions with temporal queries | Phase 1 |
+| `check_knowledge_graph_status` | Check Neo4j + Graphiti health | Phase 1 |
 
 ## Architecture
 
@@ -274,9 +312,11 @@ flowchart TB
 | **MCP Protocol** | SSE Transport | Real-time communication with AI clients |
 | **Primary DB** | PostgreSQL | Relational data, source of truth |
 | **Vector DB** | Qdrant | Semantic search with embeddings |
-| **Graph DB** | Neo4j *(planned)* | Knowledge graph with temporal queries |
-| **Embeddings** | OpenAI | Text embedding generation |
+| **Graph DB** | Neo4j 5.26 + Graphiti 0.25 | Knowledge graph with temporal queries |
+| **LLM Gateway** | OpenRouter | Access 100+ models via OpenAI-compatible API |
+| **Embeddings** | OpenAI / OpenRouter | Text embedding generation |
 | **Migrations** | Alembic | Database schema management |
+| **Package Manager** | uv | Fast Python dependency management |
 
 ## Deployment Options
 
@@ -353,6 +393,31 @@ We welcome contributions! SIGMA follows a standard branching model:
 - **development** - Active development
 
 ### Development Setup
+
+**Using uv (Recommended)**
+
+```bash
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Sync dependencies (creates venv and installs all packages)
+uv sync
+
+# Run tests
+uv run pytest test/ -v
+
+# Run the MCP test suite
+uv run test_mcp_tools.py
+
+# Run locally
+uv run uvicorn src.openmemory.main:app --reload
+
+# Update dependencies after changing pyproject.toml
+uv sync
+uv export --no-hashes --no-editable --quiet > src/requirements.txt
+```
+
+**Using pip (Alternative)**
 
 ```bash
 # Install dependencies

@@ -74,7 +74,6 @@ ENV PATH=${PATH}:${WORKDIR}/.local/bin
 USER ${USERNAME}
 
 COPY --from=builder --chown=${USERNAME}:${USERNAME} ${WORKDIR}/.local ./.local
-COPY ./src/th_logging .
 COPY ./src/${SERVICE_NAME} .
 COPY --chmod=755 ./docker/entrypoint.sh .
 
