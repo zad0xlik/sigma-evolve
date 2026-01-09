@@ -1,0 +1,69 @@
+# DigitalOcean App Platform Parameters - Production Environment
+# Update these values for your specific deployment
+
+# Container Registry Configuration
+registry:
+  name: "your-registry-name"  # Change to your DO registry name
+  repository: "mcp-memory-server"
+  tag: "production"
+
+# App Configuration
+app:
+  name: "mcp-memory-server-prod"
+  region: "nyc"  # nyc, sfo, ams, sgp, blr, fra, lon, tor
+  instance_size: "professional-s"  # professional-s ($24) for production
+  instance_count: 2  # Run 2 instances for HA
+
+# Environment Variables (Encrypted)
+# These should be set via: doctl apps create-deployment or via console
+environment:
+  # Database - REQUIRED (ENCRYPTED)
+  DATABASE_URL: "postgresql://user:password@your-db-host:5432/memories"
+  
+  # Qdrant - REQUIRED (ENCRYPTED)
+  QDRANT_URL: "http://your-qdrant-production-instance:6333"
+  
+  # OpenAI - REQUIRED (ENCRYPTED)
+  OPENAI_API_KEY: "sk-your-production-api-key-here"
+  
+  # Slack - OPTIONAL (ENCRYPTED)
+  SLACK_BOT_TOKEN: ""  # Set if using Slack integration
+  SLACK_APP_TOKEN: ""  # Set if using Slack integration
+  
+  # Application Settings
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"  # Or WARNING for less verbose logging
+  USER_ID: "default-user"
+  DEFAULT_APP_ID: "default-app"
+  PORT: "8000"
+  BIND_PUBLIC_HOST: "True"
+  DISABLE_HEALTH_CHECK_ACCESS_LOGS: "True"
+
+# Domain Configuration (optional)
+domain:
+  # Custom domain for production (recommended)
+  # If not set, DO will provide: mcp-memory-server-prod-xxxxx.ondigitalocean.app
+  custom: ""  # e.g., api.memory-api.yourdomain.com or memory-api.yourdomain.com
+
+# Notes for production deployment:
+# 1. Ensure "memories" database exists and is backed up regularly
+#
+# 2. Update registry name above to match your DO registry
+#
+# 3. Use dedicated, properly sized Qdrant instance for production
+#
+# 4. Set up monitoring and alerting
+#
+# 5. Configure custom domain with SSL certificate
+#
+# 6. Test in staging before deploying to production
+#
+# 7. Deploy using:
+#    cd digitalocean && ENVIRONMENT=production ./deploy.sh
+#
+# 8. Run database migrations after deployment:
+#    doctl apps exec <app-id> -- alembic upgrade head
+#
+# 9. Monitor logs and health checks after deployment
+#
+# 10. Set up regular database backups

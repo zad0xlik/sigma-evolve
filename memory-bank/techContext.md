@@ -1,277 +1,347 @@
-# Technical Context: MCP Memory Server
+# Technical Context: SIGMA - The Self-Evolving Developer Intelligence System
 
-## Technology Stack
+## Technology Stack Overview
 
-### Core Framework
-- **FastAPI 0.115+**: Modern async web framework
+```mermaid
+flowchart TB
+    subgraph Current["Current Foundation ✅"]
+        FAST[FastAPI + MCP]
+        PG[PostgreSQL]
+        QD[Qdrant]
+        SLACK[Slack SDK]
+        OPENAI[OpenAI API]
+    end
+    
+    subgraph Adding["Phase 1: Knowledge Graph 🔄"]
+        GRAPHITI[Graphiti Core]
+        NEO[Neo4j]
+    end
+    
+    subgraph Future["Phase 2: Intelligence 📋"]
+        GIT[GitPython]
+        RESEARCH[Research Engine]
+        PATTERN[Pattern Learner]
+    end
+    
+    Current --> Adding --> Future
+```
+
+## Core Technologies
+
+### Application Framework
+- **FastAPI 0.115+**: Async web framework
   - Native async/await support
-  - Automatic OpenAPI docs
+  - Automatic OpenAPI documentation
   - Pydantic validation
-  - CORS middleware
-  - Built-in dependency injection
+  - MCP SSE transport
 
-### Databases
-- **PostgreSQL 15+**: Primary relational database
-  - JSONB columns for flexible metadata
-  - UUID primary keys
-  - Complex indexes for performance
-  - ACID compliance for data integrity
-  
-- **Qdrant**: Vector similarity search engine
-  - OpenAI embeddings (1536 dimensions)
-  - HTTP API client
-  - Collection per user architecture
-  - Payload filtering capabilities
+### Database Layer
 
-### MCP Implementation
-- **fastmcp**: FastMCP library for MCP server
-  - Server-Side Events (SSE) transport
-  - Tool registration with @mcp.tool decorator
-  - Context variable support for user isolation
-  - Automatic JSON response formatting
+| Database | Purpose | Status |
+|----------|---------|--------|
+| PostgreSQL 15+ | Source of truth, relational data | ✅ Active |
+| Qdrant | Vector similarity search | ✅ Active |
+| Neo4j | Knowledge graph, temporal entities | 🔄 Adding |
 
-### Memory Management
-- **mem0 (mem0ai)**: Memory orchestration layer
-  - Vector embedding generation
-  - Storage abstraction (Qdrant)
-  - Memory lifecycle management
-  - Configuration-based setup
+### Knowledge Graph
+- **Graphiti**: Temporal knowledge graph framework
+  - Entity extraction from text
+  - Relationship mapping with temporal metadata
+  - Bi-temporal query support
+  - Community detection
 
-### Database Migrations
-- **Alembic**: SQLAlchemy migration tool
-  - Version-controlled schema changes
-  - Auto-generation from models
-  - Rollback capability
-  - Environment-specific migrations
+### AI/ML Services
+- **OpenAI API** (Direct or via OpenRouter)
+  - Embeddings: text-embedding-3-small
+  - LLM: GPT-4o-mini for categorization
+  - Entity extraction (with Graphiti)
 
-### Background Processing
-- **APScheduler**: Background job scheduler
-  - Interval-based jobs (sync every 30 min)
-  - In-process scheduler (BackgroundScheduler)
-  - Job persistence not required (stateless)
+- **OpenRouter** (Optional LLM Gateway)
+  - Access 100+ models from multiple providers
+  - OpenAI-compatible API endpoint
+  - Supports: OpenAI, Anthropic, Google, Meta, Mistral, etc.
+  - Use any model for LLM operations (chat, categorization)
+  - Note: Embeddings still require OpenAI-compatible endpoint
 
-### External Integrations
-- **Slack SDK**: Slack API client
-  - Channel history fetching
-  - User information lookup
-  - Thread conversation handling
-  - Rate limiting and pagination
+### Integrations
+- **Slack SDK**: Channel history, decision tracking
+- **GitPython** (Planned): Repository analysis
+- **GitHub API** (Planned): PRs, issues, code reviews
 
-### AI/ML
-- **OpenAI API**: Text embedding generation
-  - text-embedding-3-small model (default)
-  - Categorization via GPT models
-  - Configurable via environment variables
+## Dependency Matrix
 
-## Development Environment
-
-### Local Setup
-
-#### Requirements
-```bash
-Python 3.12+
-Docker & Docker Compose
-PostgreSQL 15+ (via Docker)
-Qdrant (via Docker)
+### Core Dependencies
 ```
-
-#### Environment Configuration
-`.env` file structure:
-```bash
-# Database
-DATABASE_URL=postgresql://user:pass@localhost:5432/openmemory
-
-# Qdrant
-QDRANT_URL=http://localhost:6333
-
-# OpenAI
-OPENAI_API_KEY=sk-...
-
-# Default User
-USER_ID=default-user
-DEFAULT_APP_ID=default-app
-
-# Logging
-LOG_LEVEL=INFO
-```
-
-#### Docker Compose Stack
-```yaml
-services:
-  postgres:
-    image: postgres:15
-    ports: 5432:5432
-    volumes: postgres_data
-    
-  qdrant:
-    image: qdrant/qdrant:latest
-    ports: 6333:6333
-    volumes: qdrant_data
-    
-  app:
-    build: .
-    ports: 8000:8000
-    depends_on: [postgres, qdrant]
-```
-
-### Running Locally
-
-#### Start Services
-```bash
-cd docker
-docker compose up
-```
-
-#### Database Migrations
-```bash
-cd src/openmemory
-alembic upgrade head
-```
-
-#### Run Tests
-```bash
-pytest test/
-```
-
-#### Access Points
-- API: http://localhost:8000
-- OpenAPI Docs: http://localhost:8000/docs
-- Health Check: http://localhost:8000/health
-- MCP SSE: http://localhost:8000/mcp/{client_name}/sse/{user_id}
-
-## AWS Deployment Architecture
-
-### Infrastructure Components
-
-#### ECS Service
-- **Launch Type**: EC2 (cost-optimized)
-- **Networking Mode**: Bridge (dynamic port mapping)
-- **Task Definition**: Container specs, environment, secrets
-- **Service**: Desired count, health checks, load balancing
-
-#### Application Load Balancer
-- **Target Group**: Health checks on /health
-- **Listener**: HTTPS:443 → Target Group
-- **SSL/TLS**: ACM certificate
-- **Health Check**: 30s interval, 5 healthy threshold
-
-#### Networking
-- **VPC**: Existing VPC with subnets
-- **Security Groups**: ALB → ECS task
-- **Route53**: DNS alias to ALB
-
-#### Secrets Management
-- **AWS Secrets Manager**: Store sensitive data
-- **Pattern**: `{Environment}/{ServiceName}/*`
-- **Auto-injection**: ECS task pulls at startup
-
-#### Logging
-- **CloudWatch Logs**: Auto-configured log group
-- **Retention**: 7 days
-- **Format**: JSON structured logs
-
-### CloudFormation Parameters
-
-#### Required Parameters
-```yaml
-ServiceName: my-memory-service
-Environment: dev|staging|production
-DesiredCount: 1  # Number of tasks
-MemoryReservation: 512  # MB
-CpuReservation: 256  # CPU units
-```
-
-#### Infrastructure References
-```yaml
-VpcId: vpc-xxxxx
-SubnetIds: subnet-a,subnet-b
-ECSCluster: my-cluster-name
-HostedZoneId: Z1234567890ABC
-CertificateArn: arn:aws:acm:...
-```
-
-### CI/CD Pipeline
-
-#### GitHub Actions Workflow
-```yaml
-Trigger: Push to dev/staging/main branches
-Steps:
-  1. Checkout code
-  2. Configure AWS credentials (OIDC)
-  3. Login to ECR
-  4. Build Docker image
-  5. Tag with git SHA
-  6. Push to ECR
-  7. Update CloudFormation stack
-  8. Wait for rollout completion
-```
-
-#### Deployment Targets
-- `dev` branch → dev environment
-- `staging` branch → staging environment  
-- `main` branch → production environment
-
-#### Rollback Strategy
-- CloudFormation rollback on failure
-- ECS circuit breaker stops bad deployments
-- Previous task definition retained
-
-## Dependencies
-
-### Python Dependencies (src/requirements.txt)
-
-#### Core Framework
-```
+# Framework
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-python-dotenv==1.0.1
 pydantic==2.10.4
-pydantic-settings==2.6.1
-```
 
-#### Database
-```
+# MCP
+fastmcp==0.6.1
+mcp==1.3.2
+
+# Memory
+mem0ai==0.1.37
+qdrant-client==1.12.1
+
+# Knowledge Graph (Adding)
+graphiti-core>=0.3.0
+neo4j>=5.0.0
+
+# Database
 sqlalchemy==2.0.36
 alembic==1.14.0
 psycopg2-binary==2.9.10
-```
 
-#### MCP & Memory
-```
-fastmcp==0.6.1
-mcp==1.3.2
-mem0ai==0.1.37
-qdrant-client==1.12.1
-```
-
-#### AI/ML
-```
+# AI
 openai==1.57.4
-anthropic==0.42.0  # Optional
-```
 
-#### Utilities
-```
-apscheduler==3.10.4
-fastapi-pagination==0.12.32
-requests==2.32.3
-```
-
-#### Slack Integration
-```
+# Integrations
 slack-sdk==3.33.5
+gitpython>=3.1.0  # Planned
+
+# Background Jobs
+apscheduler==3.10.4
 ```
 
-### System Dependencies
-- **libpq-dev**: PostgreSQL client library (for psycopg2)
-- **build-essential**: C compiler (for some Python packages)
+## Environment Configuration
+
+### Required Environment Variables
+
+```bash
+# Database
+DATABASE_URL=postgresql://user:pass@localhost:5432/sigma
+
+# Qdrant (Vector Search)
+QDRANT_URL=http://localhost:6333
+
+# Neo4j (Knowledge Graph)
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your-password
+
+# LLM Configuration (choose one option below)
+OPENAI_API_KEY=sk-...
+OPENAI_BASE_URL=  # Leave empty for direct OpenAI
+
+# SIGMA Configuration
+USER_ID=default-user
+DEFAULT_APP_ID=sigma-default
+LOG_LEVEL=INFO
+
+# Feature Flags
+GRAPHITI_ENABLED=true
+PATTERN_LEARNING_ENABLED=false
+RESEARCH_ENGINE_ENABLED=false
+
+# Integrations
+SLACK_BOT_TOKEN=xoxb-...
+GITHUB_TOKEN=ghp_...  # Planned
+```
+
+### OpenRouter Configuration
+
+SIGMA supports [OpenRouter](https://openrouter.ai) as an LLM gateway, giving you access to 100+ models from multiple providers through a single API.
+
+```mermaid
+flowchart LR
+    SIGMA[SIGMA] --> |OPENAI_BASE_URL| OR[OpenRouter API]
+    OR --> OPENAI[OpenAI<br/>GPT-4o, GPT-4o-mini]
+    OR --> ANTH[Anthropic<br/>Claude 3.5 Sonnet]
+    OR --> GOOGLE[Google<br/>Gemini Pro 1.5]
+    OR --> META[Meta<br/>Llama 3.1]
+    OR --> MISTRAL[Mistral<br/>Mixtral, Mistral Large]
+```
+
+**To use OpenRouter:**
+
+1. Get an API key at [openrouter.ai/keys](https://openrouter.ai/keys)
+2. Set environment variables:
+```bash
+OPENAI_API_KEY=sk-or-v1-your-openrouter-key
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+```
+
+3. Update `config.json` with your preferred model:
+```json
+{
+    "mem0": {
+        "llm": {
+            "provider": "openai",
+            "config": {
+                "model": "anthropic/claude-3.5-sonnet",
+                "temperature": 0.1,
+                "max_tokens": 2000,
+                "api_key": "env:OPENAI_API_KEY",
+                "openai_base_url": "env:OPENAI_BASE_URL"
+            }
+        },
+        "embedder": {
+            "provider": "openai",
+            "config": {
+                "model": "openai/text-embedding-3-small",
+                "api_key": "env:OPENAI_API_KEY",
+                "openai_base_url": "env:OPENAI_BASE_URL"
+            }
+        }
+    }
+}
+```
+
+**Popular OpenRouter Models:**
+
+| Model | Use Case | Cost |
+|-------|----------|------|
+| `openai/gpt-4o-mini` | Fast, general purpose | $ |
+| `openai/gpt-4o` | Powerful reasoning | $$$ |
+| `anthropic/claude-3.5-sonnet` | Excellent for code | $$ |
+| `anthropic/claude-3-haiku` | Fast, cheap | $ |
+| `google/gemini-pro-1.5` | Long context (1M tokens) | $$ |
+| `meta-llama/llama-3.1-70b-instruct` | Open source | $ |
+
+## Docker Compose Stack
+
+```mermaid
+flowchart TB
+    subgraph Docker["Docker Compose Services"]
+        APP[sigma-app<br/>Port: 8000]
+        PG[postgres:15<br/>Port: 5432]
+        QD[qdrant/qdrant<br/>Port: 6333]
+        NEO[neo4j:latest<br/>Ports: 7474, 7687]
+    end
+    
+    APP --> PG
+    APP --> QD
+    APP --> NEO
+    
+    PG --> PGV[(pgdata)]
+    QD --> QDV[(qdrant_data)]
+    NEO --> NEOV[(neo4j_data)]
+```
+
+```yaml
+# docker/docker-compose.yaml (Updated)
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: sigma
+      POSTGRES_PASSWORD: sigma
+      POSTGRES_DB: sigma
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  neo4j:
+    image: neo4j:latest
+    environment:
+      NEO4J_AUTH: neo4j/sigmapassword
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "7474:7474"  # Browser
+      - "7687:7687"  # Bolt
+    volumes:
+      - neo4j_data:/data
+
+  sigma:
+    build: 
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://sigma:sigma@postgres:5432/sigma
+      - QDRANT_URL=http://qdrant:6333
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=sigmapassword
+    depends_on:
+      - postgres
+      - qdrant
+      - neo4j
+
+volumes:
+  pgdata:
+  qdrant_data:
+  neo4j_data:
+```
+
+## Multi-Cloud Deployment
+
+### AWS Architecture
+
+```mermaid
+flowchart TB
+    subgraph AWS["AWS Infrastructure"]
+        subgraph Compute["Compute"]
+            ECS[ECS Fargate]
+            LAMBDA[Lambda<br/>Research Jobs]
+        end
+        
+        subgraph Data["Data Layer"]
+            RDS[(RDS PostgreSQL)]
+            QDCLOUD[Qdrant Cloud]
+            AURA[Neo4j Aura]
+        end
+        
+        subgraph Support["Supporting Services"]
+            SM[Secrets Manager]
+            CW[CloudWatch]
+            S3[S3 Backups]
+        end
+        
+        ALB[Application<br/>Load Balancer] --> ECS
+        ECS --> Data
+        ECS --> Support
+        LAMBDA --> Data
+    end
+    
+    Route53[Route53] --> ALB
+```
+
+### DigitalOcean Architecture
+
+```mermaid
+flowchart TB
+    subgraph DO["DigitalOcean"]
+        subgraph App["App Platform"]
+            SIGMA[SIGMA Service]
+            WORKER[Worker Service<br/>Background Jobs]
+        end
+        
+        subgraph Data["External Services"]
+            DOPG[(Managed PostgreSQL)]
+            QDCLOUD[Qdrant Cloud]
+            AURA[Neo4j Aura]
+        end
+        
+        App --> Data
+    end
+```
 
 ## Configuration Management
 
 ### Config File Structure
-`src/openmemory/config.json` or `default_config.json`:
 ```json
 {
+  "sigma": {
+    "version": "1.0.0",
+    "features": {
+      "graphiti": true,
+      "pattern_learning": false,
+      "research_engine": false,
+      "cross_project": false
+    }
+  },
   "llm": {
     "provider": "openai",
     "config": {
@@ -288,185 +358,201 @@ slack-sdk==3.33.5
   "vector_store": {
     "provider": "qdrant",
     "config": {
-      "url": "${QDRANT_URL}",
-      "embedding_model_dims": 1536
+      "url": "${QDRANT_URL}"
+    }
+  },
+  "graph_store": {
+    "provider": "neo4j",
+    "config": {
+      "uri": "${NEO4J_URI}",
+      "user": "${NEO4J_USER}",
+      "password": "${NEO4J_PASSWORD}"
     }
   }
 }
 ```
 
-### Environment Variable Expansion
-- `${VAR_NAME}` in config → replaced with env var value
-- Allows environment-specific configuration
-- Loaded via `app/config.py`
+## Access Points
 
-### Database Configuration
-Via SQLAlchemy engine:
+| Endpoint | Description |
+|----------|-------------|
+| `http://localhost:8000` | API Server |
+| `http://localhost:8000/docs` | OpenAPI Documentation |
+| `http://localhost:8000/health` | Health Check |
+| `http://localhost:8000/mcp/{client}/sse/{user}` | MCP SSE Connection |
+| `http://localhost:7474` | Neo4j Browser |
+
+## Project Structure
+
+```
+mcp-memory-server-sigma/
+├── docker/
+│   ├── docker-compose.yaml    # Full stack
+│   ├── Dockerfile
+│   └── entrypoint.sh
+├── src/
+│   └── openmemory/
+│       ├── app/
+│       │   ├── mcp_server.py          # MCP tools
+│       │   ├── models.py              # SQLAlchemy models
+│       │   ├── routers/
+│       │   │   ├── memories.py
+│       │   │   ├── apps.py
+│       │   │   ├── graph.py           # NEW: Graph endpoints
+│       │   │   └── intelligence.py    # NEW: Intelligence endpoints
+│       │   └── utils/
+│       │       ├── memory.py
+│       │       ├── graphiti.py        # NEW: Graphiti client
+│       │       ├── query_router.py    # NEW: Query routing
+│       │       ├── git_integration.py # NEW: Git processing
+│       │       └── pattern_learner.py # NEW: Pattern learning
+│       └── alembic/                   # Database migrations
+├── memory-bank/                       # Project documentation
+├── aws/                               # AWS deployment
+└── digitalocean/                      # DO deployment
+```
+
+## Performance Targets
+
+```mermaid
+gantt
+    title Response Time Targets (milliseconds)
+    dateFormat X
+    axisFormat %s
+    
+    section Fast Path
+    Health Check        :0, 50
+    Vector Search       :0, 500
+    Memory List         :0, 300
+    
+    section Graph Path
+    Decision Query      :0, 2000
+    Cross-Project       :0, 3000
+    
+    section Background
+    Repo Ingestion      :0, 300000
+    Morning Briefing    :0, 10000
+```
+
+| Operation | Target | Notes |
+|-----------|--------|-------|
+| Health check | < 50ms | Simple ping |
+| Vector search | < 500ms | Qdrant query |
+| Decision query | < 2s | Graph traversal |
+| Cross-project search | < 3s | Multi-graph |
+| Pattern suggestion | < 1s | Pattern engine |
+| Morning briefing | < 10s | Aggregated |
+| Repo ingestion | < 5min | 10K files |
+
+## Security Considerations
+
+### Data Privacy
+- All code stays in your infrastructure
+- Self-hostable with Docker Compose
+- No data sent to external services except:
+  - OpenAI for embeddings/LLM (can use local models)
+  - Slack API (for Slack integration)
+  - GitHub API (for GitHub integration)
+
+### Secrets Management
+- AWS: Secrets Manager
+- DigitalOcean: App Platform secrets
+- Local: .env file (gitignored)
+
+### Access Control
+- Per-user memory isolation
+- ACL-based permissions
+- API authentication via MCP context
+
+## Debugging & Monitoring
+
+### Log Levels
 ```python
-engine = create_engine(
-    DATABASE_URL,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,  # Test connections
-    echo=False  # Set True for SQL logging
-)
+# th_logging configuration
+LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# Enable SQL logging
+SQLALCHEMY_ECHO=true
+
+# Enable Graphiti debug
+GRAPHITI_DEBUG=true
 ```
 
-## Tool Usage Patterns
+### Key Log Locations
+- Application: `docker compose logs sigma`
+- PostgreSQL: `docker compose logs postgres`
+- Neo4j: `docker compose logs neo4j`
+- Qdrant: `docker compose logs qdrant`
 
-### Database Migrations
-
-#### Create New Migration
+### Health Monitoring
 ```bash
-cd src/openmemory
-alembic revision --autogenerate -m "add new column"
+# Check all services
+curl http://localhost:8000/health
+curl http://localhost:6333/collections
+curl http://localhost:7474  # Neo4j browser
 ```
 
-#### Review Generated Migration
-Check `alembic/versions/*.py` for correctness
+## Development Workflow
 
-#### Apply Migration
+### Local Setup
 ```bash
-alembic upgrade head
-```
-
-#### Rollback Migration
-```bash
-alembic downgrade -1
-```
-
-### Docker Operations
-
-#### Build Image
-```bash
-docker build -f docker/Dockerfile -t memory-server .
-```
-
-#### Push to ECR
-```bash
-./docker/login_to_ecr.sh
-docker tag memory-server:latest ${ECR_URL}:latest
-docker push ${ECR_URL}:latest
-```
-
-#### Local Development
-```bash
+# Start all services
 cd docker
-docker compose up --build
-docker compose logs -f app  # Follow logs
-docker compose down  # Stop services
-```
+docker compose up -d
 
-### AWS Deployment
+# Run migrations
+cd src/openmemory
+alembic upgrade head
 
-#### Create ECR Repository
-```bash
-aws cloudformation create-stack \
-  --stack-name memory-server-ecr \
-  --template-file aws/ecr.yaml
-```
-
-#### Deploy Service
-```bash
-aws cloudformation create-stack \
-  --stack-name memory-server-dev \
-  --template-file aws/template.yaml \
-  --parameters file://aws/parameters.dev.yaml \
-  --capabilities CAPABILITY_IAM
-```
-
-#### Update Service
-```bash
-aws cloudformation update-stack \
-  --stack-name memory-server-dev \
-  --template-file aws/template.yaml \
-  --parameters file://aws/parameters.dev.yaml \
-  --capabilities CAPABILITY_IAM
+# Check logs
+docker compose logs -f sigma
 ```
 
 ### Testing
-
-#### Run All Tests
 ```bash
+# Run tests
 pytest test/ -v
+
+# Test MCP connection
+curl -N "http://localhost:8000/mcp/test-client/sse/test-user"
 ```
 
-#### Run with Coverage
+### Database Operations
 ```bash
-pytest test/ --cov=src --cov-report=html
+# Create migration
+alembic revision --autogenerate -m "description"
+
+# Apply migration
+alembic upgrade head
+
+# Rollback
+alembic downgrade -1
 ```
 
-#### Run Specific Test
-```bash
-pytest test/test_th_logging.py::test_function_name
+## Technology Roadmap
+
+```mermaid
+timeline
+    title SIGMA Technology Evolution
+    
+    section Current
+        Foundation : PostgreSQL + Qdrant
+                   : FastAPI + MCP
+                   : Slack Integration
+    
+    section Phase 1
+        Knowledge Graph : Graphiti + Neo4j
+                       : Temporal Queries
+                       : Decision Tracking
+    
+    section Phase 2
+        Intelligence : Git Integration
+                    : Pattern Learning
+                    : Research Engine
+    
+    section Phase 3
+        Advanced : Cross-Project Synthesis
+                : IDE Extensions
+                : Autonomous Agents
 ```
-
-## Technical Constraints
-
-### Resource Limits
-- **Memory**: Minimum 512MB per container
-- **CPU**: Minimum 256 CPU units (0.25 vCPU)
-- **Disk**: Ephemeral, no persistent volumes on ECS
-- **Connections**: PostgreSQL connection pool (5 base + 10 overflow)
-
-### API Limitations
-- **OpenAI**: Rate limits on embeddings API
-- **Slack**: Rate limits on API calls (tier-based)
-- **Qdrant**: Memory/disk for vector storage
-
-### Security Constraints
-- **No root containers**: Run as non-root user
-- **Secrets**: Never commit to git, use Secrets Manager
-- **TLS**: HTTPS only, no HTTP in production
-- **IAM**: Least privilege for ECS task roles
-
-### Network Constraints
-- **Outbound**: Needs internet for OpenAI, Slack APIs
-- **Inbound**: Only via ALB, no direct container access
-- **DNS**: Requires Route53 hosted zone
-
-## Performance Characteristics
-
-### Latency Targets
-- Health check: < 50ms
-- Memory add: < 2s (including embedding)
-- Memory search: < 1s (vector search)
-- Memory list: < 500ms
-- Sync operation: 1-5 minutes (depends on memory count)
-
-### Throughput
-- Concurrent requests: 10-50 (depends on resources)
-- Embeddings: Limited by OpenAI API rate
-- Database: 100+ queries/second (typical)
-- Qdrant: 1000+ vectors/second (search)
-
-### Storage
-- PostgreSQL: ~1KB per memory (average)
-- Qdrant: ~6KB per vector (1536 dims * 4 bytes)
-- Logs: ~1GB per day (active service)
-
-## Monitoring & Debugging
-
-### Logs
-- **Format**: JSON structured logs
-- **Location**: CloudWatch Logs (AWS) or stdout (local)
-- **Library**: Custom `th_logging` framework
-- **Levels**: DEBUG, INFO, WARNING, ERROR, CRITICAL
-
-### Health Checks
-- **Endpoint**: GET /health
-- **Response**: `{"status": "healthy", "service": "openmemory"}`
-- **Used by**: ALB target group, ECS service
-
-### Metrics (Future)
-- Memory operation counts
-- Search latency percentiles
-- Sync success/failure rates
-- Database connection pool usage
-
-### Debugging Tips
-1. **Check logs**: `docker compose logs -f app`
-2. **Database queries**: Set `echo=True` in SQLAlchemy engine
-3. **MCP debugging**: Check SSE connection in browser DevTools
-4. **Vector search issues**: Verify Qdrant collection exists
-5. **Sync problems**: Check background job logs every 30 min
+### AWS Deployment

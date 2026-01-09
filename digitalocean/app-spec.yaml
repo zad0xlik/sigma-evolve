@@ -1,0 +1,107 @@
+name: mcp-memory-server
+region: nyc
+
+# Service configuration
+services:
+  - name: memory-api
+    # Build configuration
+    build_command: |
+      cd src/openmemory && pip install -r requirements.txt
+    
+    # Use Dockerfile from docker/Dockerfile
+    dockerfile_path: docker/Dockerfile
+    
+    # Runtime configuration
+    run_command: |
+      cd src/openmemory && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
+    
+    # Source configuration (will be overridden by registry image)
+    github:
+      repo: nextmcp/mcp-memory-server-sigma
+      branch: main
+      deploy_on_push: false
+    
+    # HTTP configuration
+    http_port: 8000
+    
+    # Health check
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 15
+      period_seconds: 30
+      timeout_seconds: 10
+      success_threshold: 2
+      failure_threshold: 3
+    
+    # Resource allocation
+    instance_count: 1
+    instance_size_slug: basic-xxs  # 512MB RAM, 1 vCPU - $5/month
+    
+    # Environment variables (sensitive ones should be marked as encrypted)
+    envs:
+      - key: ENVIRONMENT
+        value: production
+        scope: RUN_TIME
+      
+      - key: PORT
+        value: "8000"
+        scope: RUN_AND_BUILD_TIME
+      
+      - key: BIND_PUBLIC_HOST
+        value: "True"
+        scope: RUN_TIME
+      
+      - key: LOG_LEVEL
+        value: INFO
+        scope: RUN_TIME
+      
+      - key: USER_ID
+        value: default-user
+        scope: RUN_TIME
+      
+      - key: DEFAULT_APP_ID
+        value: default-app
+        scope: RUN_TIME
+      
+      # Database configuration (ENCRYPTED - will be set via parameters file or console)
+      - key: DATABASE_URL
+        value: ""  # Set via parameters file
+        type: SECRET
+        scope: RUN_TIME
+      
+      # Qdrant configuration (ENCRYPTED)
+      - key: QDRANT_URL
+        value: ""  # Set via parameters file
+        type: SECRET
+        scope: RUN_TIME
+      
+      # OpenAI configuration (ENCRYPTED)
+      - key: OPENAI_API_KEY
+        value: ""  # Set via parameters file
+        type: SECRET
+        scope: RUN_TIME
+      
+      # Slack configuration (ENCRYPTED - optional)
+      - key: SLACK_BOT_TOKEN
+        value: ""  # Optional - set via parameters file
+        type: SECRET
+        scope: RUN_TIME
+      
+      - key: SLACK_APP_TOKEN
+        value: ""  # Optional - set via parameters file
+        type: SECRET
+        scope: RUN_TIME
+      
+      # Disable health check logs for cleaner logs
+      - key: DISABLE_HEALTH_CHECK_ACCESS_LOGS
+        value: "True"
+        scope: RUN_TIME
+
+# Ingress configuration
+ingress:
+  rules:
+    - component:
+        name: memory-api
+      match:
+        path:
+          prefix: /

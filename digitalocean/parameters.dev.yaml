@@ -1,0 +1,58 @@
+# DigitalOcean App Platform Parameters - Development Environment
+# Update these values for your specific deployment
+
+# Container Registry Configuration
+registry:
+  name: "your-registry-name"  # Change to your DO registry name
+  repository: "mcp-memory-server"
+  tag: "dev"
+
+# App Configuration
+app:
+  name: "mcp-memory-server-dev"
+  region: "nyc"  # nyc, sfo, ams, sgp, blr, fra, lon, tor
+  instance_size: "basic-xxs"  # basic-xxs ($5), professional-xs ($12), professional-s ($24)
+  instance_count: 1
+
+# Environment Variables (Encrypted)
+# These should be set via: doctl apps create-deployment or via console
+environment:
+  # Database - REQUIRED (ENCRYPTED)
+  DATABASE_URL: "postgresql://user:password@your-db-host:5432/memories"
+  
+  # Qdrant - REQUIRED (ENCRYPTED)
+  # For dev, you might use a shared Qdrant instance or local one
+  QDRANT_URL: "http://your-qdrant-dev-instance:6333"
+  
+  # OpenAI - REQUIRED (ENCRYPTED)
+  OPENAI_API_KEY: "sk-your-dev-api-key-here"
+  
+  # Slack - OPTIONAL (ENCRYPTED)
+  SLACK_BOT_TOKEN: ""  # Leave empty if not using Slack integration
+  SLACK_APP_TOKEN: ""  # Leave empty if not using Slack integration
+  
+  # Application Settings
+  ENVIRONMENT: "dev"
+  LOG_LEVEL: "DEBUG"  # More verbose logging for dev
+  USER_ID: "dev-user"
+  DEFAULT_APP_ID: "dev-app"
+  PORT: "8000"
+  BIND_PUBLIC_HOST: "True"
+  DISABLE_HEALTH_CHECK_ACCESS_LOGS: "True"
+
+# Domain Configuration (optional)
+domain:
+  # Custom domain for dev (optional)
+  # If not set, DO will provide: mcp-memory-server-dev-xxxxx.ondigitalocean.app
+  custom: ""  # e.g., dev.memory-api.yourdomain.com
+
+# Notes for deployment:
+# 1. Create the "memories" database first:
+#    PGPASSWORD='your-password' psql -h your-db-host -U postgres -c "CREATE DATABASE memories"
+#
+# 2. Update registry name above to match your DO registry
+#
+# 3. Set up Qdrant instance (can use Docker or managed service)
+#
+# 4. Deploy using:
+#    cd digitalocean && ENVIRONMENT=dev ./deploy.sh

@@ -1,0 +1,58 @@
+# DigitalOcean App Platform Parameters - Staging Environment
+# Update these values for your specific deployment
+
+# Container Registry Configuration
+registry:
+  name: "your-registry-name"  # Change to your DO registry name
+  repository: "mcp-memory-server"
+  tag: "staging"
+
+# App Configuration
+app:
+  name: "mcp-memory-server-staging"
+  region: "nyc"  # nyc, sfo, ams, sgp, blr, fra, lon, tor
+  instance_size: "professional-xs"  # professional-xs ($12), professional-s ($24)
+  instance_count: 1
+
+# Environment Variables (Encrypted)
+# These should be set via: doctl apps create-deployment or via console
+environment:
+  # Database - REQUIRED (ENCRYPTED)
+  DATABASE_URL: "postgresql://user:password@your-db-host:5432/memories"
+  
+  # Qdrant - REQUIRED (ENCRYPTED)
+  QDRANT_URL: "http://your-qdrant-staging-instance:6333"
+  
+  # OpenAI - REQUIRED (ENCRYPTED)
+  OPENAI_API_KEY: "sk-your-staging-api-key-here"
+  
+  # Slack - OPTIONAL (ENCRYPTED)
+  SLACK_BOT_TOKEN: ""  # Set if using Slack integration
+  SLACK_APP_TOKEN: ""  # Set if using Slack integration
+  
+  # Application Settings
+  ENVIRONMENT: "staging"
+  LOG_LEVEL: "INFO"
+  USER_ID: "staging-user"
+  DEFAULT_APP_ID: "staging-app"
+  PORT: "8000"
+  BIND_PUBLIC_HOST: "True"
+  DISABLE_HEALTH_CHECK_ACCESS_LOGS: "True"
+
+# Domain Configuration (optional)
+domain:
+  # Custom domain for staging (optional)
+  # If not set, DO will provide: mcp-memory-server-staging-xxxxx.ondigitalocean.app
+  custom: ""  # e.g., staging.memory-api.yourdomain.com
+
+# Notes for deployment:
+# 1. Ensure "memories" database exists on staging PostgreSQL
+#
+# 2. Update registry name above to match your DO registry
+#
+# 3. Set up dedicated Qdrant instance for staging
+#
+# 4. Deploy using:
+#    cd digitalocean && ENVIRONMENT=staging ./deploy.sh
+#
+# 5. Test thoroughly before promoting to production
