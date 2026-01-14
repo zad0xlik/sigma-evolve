@@ -915,6 +915,159 @@ async def check_knowledge_graph_status() -> str:
         })
 
 
+# =============================================================================
+# SIGMA Phase 2: Git Integration Tools
+# =============================================================================
+
+@mcp.tool(description="Analyze and ingest a git repository into SIGMA's knowledge graph. Extracts project metadata, commit history, dependencies, and file structure. Use this to build context about a project's architecture and evolution.")
+async def ingest_project(
+    repo_path: str,
+    branch: str = None,
+    commit_limit: int = 50,
+) -> str:
+    """
+    Analyze a git repository and ingest it into SIGMA's knowledge graph.
+    
+    This extracts:
+    - Repository metadata (branches, remotes, etc.)
+    - Commit history and patterns
+    - Project dependencies from package files
+    - File structure and language statistics
+    - Decision keywords from commit messages
+    
+    Args:
+        repo_path: Absolute path to the git repository
+        branch: Branch to analyze (defaults to active branch)
+        commit_limit: Maximum number of commits to analyze (default: 50)
+    
+    Returns:
+        JSON string with analysis results
+    """
+    uid = user_id_var.get(None)
+    client_name = client_name_var.get(None)
+    
+    if not uid:
+        return json.dumps({"error": "user_id not provided"})
+    if not client_name:
+        return json.dumps({"error": "client_name not provided"})
+    
+    # Import git integration (lazy to handle missing dependencies gracefully)
+    try:
+        from app.utils.git_integration import GitProjectAnalyzer, is_git_integration_enabled
+    except ImportError as e:
+        return json.dumps({
+            "error": "Git integration not available",
+            "message": "GitPython is not installed",
+            "install": "Run: uv sync"
+        })
+    
+    # Check if git integration is enabled
+    if not is_git_integration_enabled():
+        return json.dumps({
+            "error": "Git integration is disabled",
+            "message": "Set GIT_INTEGRATION_ENABLED=true to enable repository analysis"
+        })
+    
+    try:
+        # Initialize analyzer
+        analyzer = GitProjectAnalyzer(repo_path)
+        
+        # Perform full project analysis
+        logging.info(f"Analyzing repository at {repo_path} for user {uid}")
+        analysis = analyzer.analyze_full_project(branch=branch, commit_limit=commit_limit)
+        
+        # Store project info in knowledge graph if Graphiti is enabled
+        if is_graphiti_enabled():
+            try:
+                # Create a comprehensive text summary for Graphiti ingestion
+                repo_info = analysis["repository"]
+                deps = analysis["dependencies"]
+                patterns = analysis["patterns"]
+                
+                summary_parts = [
+                    f"Project: {repo_info['name']}",
+                    f"Path: {repo_info['path']}",
+                    f"Active Branch: {repo_info.get('active_branch', 'unknown')}",
+                ]
+                
+                # Add languages
+                languages = analysis["file_structure"].get("languages", {})
+                if languages:
+                    top_langs = sorted(languages.items(), key=lambda x: x[1], reverse=True)[:5]
+                    summary_parts.append(f"Primary Languages: {', '.join(f'{lang} ({count} files)' for lang, count in top_langs)}")
+                
+                # Add dependencies
+                if deps:
+                    for ecosystem, dep_list in deps.items():
+                        summary_parts.append(f"{ecosystem.title()} Dependencies: {len(dep_list)} packages")
+                        # Store top 10 dependencies
+                        for dep in dep_list[:10]:
+                            summary_parts.append(f"  - {dep['name']} {dep.get('version', '')}")
+                
+                # Add commit patterns
+                summary_parts.append(f"Recent Commits: {patterns['total_commits']} analyzed")
+                summary_parts.append(f"Contributors: {', '.join(patterns['authors'][:10])}")
+                
+                # Add commit types
+                if patterns.get('commit_types'):
+                    summary_parts.append(f"Commit Types: {', '.join(f'{k}:{v}' for k, v in patterns['commit_types'].items())}")
+                
+                # Add decision keywords found in commits
+                if patterns.get('decision_keywords'):
+                    summary_parts.append(f"Decision Keywords Found: {len(patterns['decision_keywords'])} instances")
+                    for decision_kw in patterns['decision_keywords'][:5]:
+                        summary_parts.append(f"  - {decision_kw['keyword']}: {decision_kw['message']}")
+                
+                summary_text = "\n".join(summary_parts)
+                
+                # Store in memory system for searchability
+                memory_client = get_memory_client_safe()
+                if memory_client:
+                    db = SessionLocal()
+                    try:
+                        user, app = get_user_and_app(db, user_id=uid, app_id=client_name)
+                        memory_client.add(
+                            summary_text,
+                            user_id=uid,
+                            metadata={
+                                "source_app": "openmemory",
+                                "mcp_client": client_name,
+                                "type": "project_analysis",
+                                "project_name": repo_info['name'],
+                                "repo_path": repo_info['path'],
+                                "branch": repo_info.get('active_branch'),
+                                "languages": list(languages.keys()),
+                            }
+                        )
+                        analysis["stored_in_memory"] = True
+                    finally:
+                        db.close()
+                
+            except Exception as kg_error:
+                logging.warning(f"Failed to store project in knowledge graph: {kg_error}")
+                analysis["knowledge_graph_storage"] = f"error: {str(kg_error)}"
+        else:
+            analysis["knowledge_graph_storage"] = "disabled"
+        
+        return json.dumps({
+            "status": "success",
+            "message": f"Successfully analyzed repository '{analysis['repository']['name']}'",
+            "analysis": analysis,
+        }, indent=2, default=str)
+        
+    except ValueError as ve:
+        # Handle git-specific errors (invalid repo, etc.)
+        return json.dumps({
+            "error": "Invalid repository",
+            "message": str(ve)
+        })
+    except Exception as e:
+        logging.exception(f"Error ingesting project: {e}")
+        return json.dumps({
+            "error": f"Failed to ingest project: {str(e)}"
+        })
+
+
 @mcp_router.get("/{client_name}/sse/{user_id}")
 async def handle_sse(request: Request):
     """Handle SSE connections for a specific user and client"""
