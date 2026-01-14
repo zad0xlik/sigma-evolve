@@ -209,3 +209,4 @@ aws/*.yaml
 !aws/ecr.yaml
 !aws/parameters.*.yaml
 logs/
+openmemory.db
