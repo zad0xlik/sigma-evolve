@@ -2,18 +2,16 @@
 
 ## Current Work Focus
 
-### Phase 1 Deployed & Running ✅
-SIGMA's Knowledge Graph foundation is now deployed with all services running.
+### Phase 2 Completed ✅
+SIGMA's Git Integration is now implemented and ready for testing.
 
 ```mermaid
 flowchart LR
     subgraph Complete["✅ Complete"]
         FOUND[Foundation Layer]
-        VISION[Vision Defined]
-        DOCS[Memory Bank Updated]
         NEO[Neo4j + Graphiti]
         TOOLS[Decision Tools]
-        DEPLOY[Docker Deployment]
+        GIT[Git Integration]
     end
     
     subgraph Running["🟢 Running"]
@@ -23,9 +21,10 @@ flowchart LR
         PG[PostgreSQL :5432]
     end
     
-    subgraph Next["📋 Next"]
-        GIT[Git Integration]
+    subgraph Next["📋 Next Phase"]
         PATTERN[Pattern Learning]
+        RESEARCH[Research Engine]
+        CROSS[Cross-Project]
     end
     
     Complete --> Running --> Next
@@ -71,7 +70,35 @@ curl http://localhost:8000/health
 
 ## Recent Changes
 
-### This Session
+### January 13, 2026 - Security Hardening ✅
+```mermaid
+flowchart LR
+    AUDIT[Security Audit] --> FIX[Remove Credentials]
+    FIX --> ORG[Reorganize Files]
+    ORG --> DOC[Update Documentation]
+    DOC --> SAFE[✅ Safe to Commit]
+    
+    style SAFE fill:#90EE90
+```
+
+1. **Security Cleanup**
+   - Removed hardcoded passwords from 4 Python files
+   - Updated docker-compose.yaml to use environment variables
+   - Enhanced .env.example with security warnings
+   - Added openmemory.db to .gitignore
+
+2. **Test Organization**
+   - Moved all test files to `test/` directory
+   - `verify_ingestion.py` → `test/test_verify_ingestion.py`
+   - `test_git_integration.py` → `test/test_git_integration.py`
+   - `test_mcp_tools.py` → `test/test_mcp_tools.py`
+
+3. **Environment-Only Credentials**
+   - All services now load credentials from .env
+   - Docker services use ${VAR:-default} syntax
+   - Validation added to check for required env vars
+
+### Previous Sessions
 1. **Docker Deployment Fixed**
    - Removed non-existent `th_logging` reference from Dockerfile
    - All services now start successfully
@@ -122,28 +149,29 @@ flowchart TB
 - [x] Docker deployment working
 - [x] Test Graphiti entity extraction with OpenRouter API ✅
 
-### Phase 2: Git Integration (Next)
+### Phase 2: Git Integration ✅ COMPLETED
 
 ```mermaid
 flowchart TB
-    subgraph P2["Phase 2 Tasks"]
-        G1[Add GitPython]
-        G2[Create git_integration.py]
-        G3[Implement ingest_project tool]
-        G4[Extract commit patterns]
-        G5[Link commits to decisions]
+    subgraph P2["Phase 2 Tasks - Complete"]
+        G1[Add GitPython ✅]
+        G2[Create git_integration.py ✅]
+        G3[Implement ingest_project tool ✅]
+        G4[Extract commit patterns ✅]
+        G5[Track dependencies ✅]
     end
     
     G1 --> G2 --> G3 --> G4 --> G5
 ```
 
 #### Phase 2 Checklist
-- [ ] Add `gitpython>=3.1.0` to requirements
-- [ ] Create `app/utils/git_integration.py`
-- [ ] Implement `ingest_project` MCP tool
-- [ ] Extract entities from repository structure
-- [ ] Track library dependencies from package files
-- [ ] Link commits to decisions and issues
+- [x] Add `gitpython>=3.1.0` to requirements
+- [x] Create `app/utils/git_integration.py` (450+ lines)
+- [x] Implement `ingest_project` MCP tool
+- [x] Extract entities from repository structure
+- [x] Track library dependencies from package files
+- [x] Detect decision keywords in commits
+- [x] Create test suite (`test_git_integration.py`)
 
 ### Phase 3: Intelligence Layer
 
@@ -173,7 +201,7 @@ flowchart TB
 | `track_decision` | ✅ Implemented | Phase 1 |
 | `search_decisions` | ✅ Implemented | Phase 1 |
 | `check_knowledge_graph_status` | ✅ Implemented | Phase 1 |
-| `ingest_project` | 📋 Planned | Phase 2 |
+| `ingest_project` | ✅ Implemented | Phase 2 |
 | `get_pattern_suggestions` | 📋 Planned | Phase 3 |
 | `cross_project_search` | 📋 Planned | Phase 3 |
 | `get_morning_briefing` | 📋 Planned | Phase 3 |

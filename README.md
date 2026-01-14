@@ -201,6 +201,9 @@ cp .env.example .env
 # Start all services (PostgreSQL, Qdrant, Neo4j, main-service)
 docker compose -f docker/docker-compose.yaml up -d --build
 
+# Not detached to see live logs
+docker compose -f docker/docker-compose.yaml up --build --remove-orphans
+
 # Or start individual services
 docker compose -f docker/docker-compose.yaml up -d postgres qdrant neo4j
 docker compose -f docker/docker-compose.yaml up -d main-service
@@ -351,17 +354,98 @@ cd digitalocean
 ./deploy.sh dev
 ```
 
-## Environment Variables
+## Security
+
+SIGMA follows a strict security model with environment-only credentials. All sensitive configuration is loaded from `.env` files, never hardcoded.
+
+```mermaid
+flowchart LR
+    subgraph Secure["✅ Secure Configuration"]
+        ENV[.env file]
+        VARS[Environment Variables]
+        APP[Application]
+        
+        ENV -->|gitignored| VARS
+        VARS -->|runtime| APP
+    end
+    
+    subgraph Unsafe["❌ Never Do This"]
+        CODE[Hardcoded Secrets]
+        REPO[Git Repository]
+        
+        CODE -.->|dangerous| REPO
+    end
+    
+    style Secure fill:#ccffcc
+    style Unsafe fill:#ffcccc
+```
+
+### Configuration Best Practices
+
+1. **Always use `.env` files** - Never commit credentials to git
+2. **Copy from example** - Start with `.env.example` as your template
+3. **Unique passwords** - Use different passwords for dev/staging/production
+4. **Docker security** - Use `${VAR:-default}` syntax in docker-compose.yaml
+
+### Required Environment Variables
 
 ```bash
-# Required
-OPENAI_API_KEY=sk-...          # For embedding generation
-DATABASE_URL=postgresql://...   # PostgreSQL connection
+# LLM Configuration (choose one provider)
+LLM_PROVIDER=openrouter         # openai, openrouter, or ollama
+MODEL=openai/gpt-4o-mini        # Model to use for LLM operations
+OPENROUTER_API_KEY=sk-or-v1-... # If using OpenRouter
+OPENAI_API_KEY=sk-...           # If using OpenAI
+
+# Embedding Configuration  
+EMBEDDING_PROVIDER=openrouter   # openai or openrouter
+EMBEDDING_MODEL=openai/text-embedding-3-small
+OPENAI_API_KEY=sk-...           # For embeddings
+
+# Database Configuration
+DATABASE_URL=postgresql://user:password@host:5432/dbname
 QDRANT_URL=http://localhost:6333
 
+# Neo4j (Phase 1 - Knowledge Graph)
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your-secure-password
+
+# Optional Integrations
+SLACK_BOT_TOKEN=xoxb-...        # Slack integration
+```
+
+### Docker Compose Security
+
+All services use environment variables with safe defaults for development:
+
+```yaml
+# ✅ Correct - environment variable with default
+POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sigma}
+
+# ❌ Wrong - hardcoded secret
+POSTGRES_PASSWORD: sigma
+```
+
+See `.env.example` for all configuration options and security notes.
+## Environment Variables
+
+See the **Security** section above for best practices and required configuration. All credentials must be in `.env` files (gitignored), never hardcoded.
+
+Quick reference of main variables:
+
+```bash
+# LLM & Embeddings
+LLM_PROVIDER=openrouter
+MODEL=openai/gpt-4o-mini
+OPENROUTER_API_KEY=sk-or-v1-...
+
+# Databases
+DATABASE_URL=postgresql://...
+QDRANT_URL=http://localhost:6333
+NEO4J_URI=bolt://localhost:7687
+
 # Optional
-SLACK_BOT_TOKEN=xoxb-...       # Slack integration
-NEO4J_URI=bolt://localhost:7687 # Knowledge graph (Phase 1)
+SLACK_BOT_TOKEN=xoxb-...
 ```
 
 See `.env.example` for all configuration options.

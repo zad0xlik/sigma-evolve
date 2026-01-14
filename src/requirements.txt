@@ -64,6 +64,10 @@ fastapi==0.128.0
     #   openmemory
 fastapi-pagination==0.15.5
     # via openmemory
+gitdb==4.0.12
+    # via gitpython
+gitpython==3.1.46
+    # via openmemory
 graphiti-core==0.25.3
     # via openmemory
 greenlet==3.3.0 ; platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64'
@@ -214,6 +218,8 @@ six==1.17.0
     # via
     #   posthog
     #   python-dateutil
+smmap==5.0.2
+    # via gitdb
 sniffio==1.3.1
     # via
     #   anthropic

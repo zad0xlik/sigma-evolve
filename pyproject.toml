@@ -40,6 +40,9 @@ dependencies = [
     # SIGMA Phase 1: Knowledge Graph (Graphiti + Neo4j)
     "graphiti-core>=0.5.0",
     "neo4j>=5.0.0",
+    
+    # SIGMA Phase 2: Git Integration
+    "gitpython>=3.1.0",
 ]
 
 [project.optional-dependencies]
