@@ -7,11 +7,14 @@ from app.config import DEFAULT_APP_ID, USER_ID
 from app.database import Base, SessionLocal, engine
 from app.mcp_server import setup_mcp_server
 from app.models import App, User
-from app.routers import apps_router, backup_router, config_router, memories_router, stats_router
+from app.routers import agents_router, apps_router, backup_router, config_router, memories_router, stats_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi_pagination import add_pagination
 from apscheduler.schedulers.background import BackgroundScheduler
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -117,9 +120,24 @@ app.include_router(apps_router)
 app.include_router(stats_router)
 app.include_router(config_router)
 app.include_router(backup_router)
+app.include_router(agents_router)
 
 # Add pagination support
 add_pagination(app)
+
+# Mount static files
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+# Dashboard endpoint
+@app.get("/dashboard")
+async def dashboard():
+    """Serve the SIGMA agent dashboard"""
+    dashboard_path = os.path.join(os.path.dirname(__file__), "static", "dashboard.html")
+    if os.path.exists(dashboard_path):
+        return FileResponse(dashboard_path)
+    return {"error": "Dashboard not found"}
 
 # Health check endpoint
 @app.get("/health")

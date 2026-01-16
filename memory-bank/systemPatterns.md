@@ -2,7 +2,7 @@
 
 ## Architecture Overview
 
-### Complete SIGMA Architecture
+### Complete SIGMA Multi-Agent Architecture
 
 ```mermaid
 flowchart TB
@@ -13,17 +13,24 @@ flowchart TB
         SLACK[Slack Bot]
     end
     
-    subgraph Core["SIGMA Core"]
+    subgraph Core["SIGMA Core - Multi-Agent System"]
         MCP[MCP Server<br/>FastAPI + SSE]
-        SCHEDULER[Autonomous Scheduler]
-        WEBHOOK[Project Webhooks]
+        CONTROLLER[WorkerController<br/>Manages 5 Workers]
+        DREAMER[DreamerMetaAgent<br/>Orchestrates Experiments]
     end
     
-    subgraph Intelligence["Intelligence Layer"]
-        PATTERN[Pattern Learning Engine]
-        RESEARCH[Research Engine]
-        CROSS[Cross-Project Synthesizer]
-        HEALTH[Code Health Monitor]
+    subgraph Workers["5 Specialized Worker Agents"]
+        ANALYSIS[Analysis Worker<br/>Code metrics + issues]
+        DREAM[Dream Worker<br/>Knowledge graph]
+        RECALL[Recall Worker<br/>Semantic search]
+        LEARNING[Learning Worker<br/>Pattern transfer]
+        THINK[Think Worker<br/>Multi-agent committee]
+    end
+    
+    subgraph Intelligence["Intelligence Infrastructure"]
+        PATTERNS[Learned Patterns DB]
+        EXPERIMENTS[Experiment Tracking]
+        CROSS[Cross-Project Transfer]
     end
     
     subgraph Knowledge["Graphiti Knowledge Graph"]
@@ -32,22 +39,24 @@ flowchart TB
     end
     
     subgraph Storage["Data Storage"]
-        PG[PostgreSQL<br/>Source of Truth]
+        PG[PostgreSQL<br/>Source of Truth + Agent DB]
         QD[Qdrant<br/>Vector Search]
     end
     
-    subgraph Sources["Data Sources"]
-        GIT[Git Commits/PRs]
-        JIRA[Jira/Linear]
-        SLACKDATA[Slack History]
-        WEBRES[Web Research]
+    subgraph Execution["Execution Layer"]
+        DOCKER[Docker Executor<br/>Isolated Containers]
+        GIT[Git Operations<br/>Commit, Branch, PR]
+        TEST[Test Runner<br/>Validation]
     end
     
     Clients --> Core
-    Core --> Intelligence
-    Intelligence --> Knowledge
-    Knowledge --> Storage
-    Sources --> Intelligence
+    Core --> CONTROLLER
+    CONTROLLER --> Workers
+    Workers --> DREAMER
+    DREAMER --> Intelligence
+    Workers --> Knowledge
+    Workers --> Storage
+    Workers --> Execution
 ```
 
 ### Data Flow - Complete Pipeline
@@ -640,21 +649,369 @@ async def analyze_code(
     pass
 ```
 
+## Multi-Agent Worker Pattern
+
+### Worker Thread Architecture
+
+```mermaid
+flowchart TB
+    subgraph Controller["WorkerController"]
+        START[Start All Workers]
+        MONITOR[Monitor Health]
+        STOP[Graceful Shutdown]
+    end
+    
+    subgraph Worker["BaseWorker (Each Worker)"]
+        INIT[Initialize]
+        LOOP[Worker Loop]
+        PROD{Should Experiment?}
+        PRODUCTION[Production Cycle<br/>85% of time]
+        EXPERIMENTAL[Experimental Cycle<br/>15% of time]
+        STATS[Track Statistics]
+        SLEEP[Jitter Sleep ±10%]
+    end
+    
+    subgraph Dreamer["DreamerMetaAgent"]
+        DECIDE[should_experiment()]
+        PROPOSE[propose_experiment()]
+        RECORD[record_outcome()]
+        PROMOTE[Auto-promote Success]
+    end
+    
+    START --> INIT
+    INIT --> LOOP
+    LOOP --> PROD
+    PROD -->|No| PRODUCTION
+    PROD -->|Yes| EXPERIMENTAL
+    PRODUCTION --> STATS
+    EXPERIMENTAL --> STATS
+    STATS --> SLEEP
+    SLEEP --> LOOP
+    
+    PROD --> DECIDE
+    EXPERIMENTAL --> PROPOSE
+    EXPERIMENTAL --> RECORD
+    RECORD --> PROMOTE
+```
+
+### BaseWorker Implementation Pattern
+
+```python
+class BaseWorker(ABC):
+    """Abstract base class for all SIGMA workers.
+    
+    Each worker inherits:
+    - Dual-mode operation (production + experimental)
+    - Statistics tracking
+    - Event logging
+    - Graceful shutdown
+    - Jitter sleep (±10%)
+    """
+    
+    def __init__(self, db_session, dreamer: DreamerMetaAgent):
+        self.db = db_session
+        self.dreamer = dreamer
+        self.running = False
+        self.thread = None
+        self.stop = threading.Event()
+        self.stats = {
+            "cycles_run": 0,
+            "experiments_run": 0,
+            "last_run": None,
+            "total_time": 0,
+            "errors": 0
+        }
+    
+    @abstractmethod
+    def get_interval(self) -> int:
+        """Return worker interval in seconds from config"""
+        pass
+    
+    @abstractmethod
+    def _production_cycle(self):
+        """Execute core responsibility efficiently"""
+        pass
+    
+    @abstractmethod
+    def _experimental_cycle(self):
+        """Experiment with novel approaches"""
+        pass
+    
+    def _loop(self):
+        """Main worker loop with dual-mode execution"""
+        while self.running:
+            start_time = time.time()
+            
+            try:
+                # Decide: production or experimental?
+                if self.dreamer.should_experiment():
+                    self._experimental_cycle()
+                    self.stats["experiments_run"] += 1
+                else:
+                    self._production_cycle()
+                
+                self.stats["cycles_run"] += 1
+                self.stats["last_run"] = datetime.now()
+                
+                # Persist stats every 10 cycles
+                if self.stats["cycles_run"] % 10 == 0:
+                    self._persist_stats()
+                    
+            except Exception as e:
+                logger.error(f"Worker error: {e}")
+                self.stats["errors"] += 1
+            
+            # Jitter sleep (±10% randomization)
+            elapsed = time.time() - start_time
+            self.stats["total_time"] += elapsed
+            jitter_sleep(self.get_interval(), self.stop)
+```
+
+### Experiment Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant Worker
+    participant Dreamer as DreamerMetaAgent
+    participant LLM
+    participant DB as Database
+    
+    Worker->>Dreamer: should_experiment()?
+    Dreamer-->>Worker: True (15% of time)
+    
+    Worker->>Dreamer: propose_experiment(worker_name, context)
+    Dreamer->>LLM: Generate experiment with hypothesis
+    LLM-->>Dreamer: {experiment_name, hypothesis, approach, metrics, rollback_plan}
+    Dreamer->>DB: Store experiment (status=pending)
+    Dreamer-->>Worker: Experiment proposal
+    
+    Worker->>Worker: Execute experiment
+    Worker->>Worker: Measure outcome vs baseline
+    
+    Worker->>Dreamer: record_outcome(experiment_id, success, improvement)
+    Dreamer->>DB: Update experiment (status=completed, improvement=23%)
+    
+    alt Improvement > 20%
+        Dreamer->>DB: Set promoted_to_production=True
+        Dreamer->>Dreamer: Update production strategy
+        Note over Dreamer: Successful approach now default
+    else Improvement < 20%
+        Dreamer->>Dreamer: Learn from failure
+        Note over Dreamer: Avoid similar approaches
+    end
+```
+
+### Worker Specifications
+
+#### Analysis Worker
+```python
+class AnalysisWorker(BaseWorker):
+    """Analyzes code quality, metrics, and potential issues.
+    
+    Production Mode:
+    - Parse code using AST
+    - Compute complexity metrics (cyclomatic, cognitive)
+    - Detect common issues (unused imports, type errors)
+    - Store snapshot in code_snapshots table
+    
+    Experimental Mode:
+    - Try different parsing strategies (AST vs Tree-sitter)
+    - Experiment with different linters
+    - Test new issue detection heuristics
+    - Compare accuracy and false positive rates
+    
+    Context for Experiments:
+    - false_positive_rate: float
+    - missed_issues: int
+    - avg_accuracy: float
+    - current_strategy: str
+    """
+    
+    def get_interval(self) -> int:
+        return get_agent_config().workers.analysis_interval  # 300s (5 min)
+    
+    def _production_cycle(self):
+        project = self._get_current_project()
+        snapshot = self._analyze_codebase(project.workspace_path)
+        self._store_snapshot(project.project_id, snapshot)
+    
+    def _experimental_cycle(self):
+        context = self._get_current_performance()
+        experiment = self.dreamer.propose_experiment("analysis", context)
+        
+        if experiment:
+            exp_id = self.dreamer.record_experiment_start(
+                worker_name="analysis",
+                experiment_name=experiment["experiment_name"],
+                hypothesis=experiment["hypothesis"],
+                approach=experiment["approach"]
+            )
+            
+            # Execute experiment
+            result = self._try_experimental_approach(experiment["approach"])
+            
+            # Compare to baseline
+            improvement = self._calculate_improvement(result, context)
+            
+            # Record outcome
+            self.dreamer.record_outcome(
+                experiment_id=exp_id,
+                success=improvement > 0,
+                improvement=improvement,
+                details=result
+            )
+```
+
+#### Dream Worker
+```python
+class DreamWorker(BaseWorker):
+    """Builds and evolves the knowledge graph.
+    
+    Production Mode:
+    - Extract entities from code (files, functions, classes)
+    - Build relationships (depends_on, similar_to, co_evolves)
+    - Update temporal metadata (valid_from, valid_to)
+    - Maintain graph indices
+    
+    Experimental Mode:
+    - Try new relationship types
+    - Experiment with edge weighting algorithms
+    - Test different community detection methods
+    - Optimize query performance
+    
+    Context for Experiments:
+    - graph_density: float
+    - avg_query_time: float
+    - relationship_accuracy: float
+    - current_algorithm: str
+    """
+    
+    def get_interval(self) -> int:
+        return get_agent_config().workers.dream_interval  # 240s (4 min)
+```
+
+#### Recall Worker
+```python
+class RecallWorker(BaseWorker):
+    """Provides semantic search and context retrieval.
+    
+    Production Mode:
+    - Index new code in Qdrant
+    - Update embeddings for changed files
+    - Maintain search indices
+    - Provide fast semantic search
+    
+    Experimental Mode:
+    - Try different retrieval strategies (pure vector vs hybrid)
+    - Experiment with graph-augmented search
+    - Test different embedding models
+    - Optimize for relevance vs speed
+    
+    Context for Experiments:
+    - avg_search_time: float
+    - avg_relevance_score: float
+    - cache_hit_rate: float
+    - current_strategy: str
+    """
+    
+    def get_interval(self) -> int:
+        return get_agent_config().workers.recall_interval  # 180s (3 min)
+```
+
+#### Learning Worker
+```python
+class LearningWorker(BaseWorker):
+    """Tracks outcomes and transfers knowledge across projects.
+    
+    Production Mode:
+    - Monitor proposal acceptance rates
+    - Update pattern confidence scores
+    - Transfer successful patterns to similar projects
+    - Maintain learned_patterns table
+    
+    Experimental Mode:
+    - Try different confidence decay algorithms
+    - Experiment with ensemble learning methods
+    - Test different similarity metrics for transfer
+    - Optimize adaptation speed
+    
+    Context for Experiments:
+    - pattern_accuracy: float
+    - false_positive_rate: float
+    - adaptation_speed: float
+    - current_algorithm: str
+    """
+    
+    def get_interval(self) -> int:
+        return get_agent_config().workers.learning_interval  # 360s (6 min)
+```
+
+#### Think Worker
+```python
+class ThinkWorker(BaseWorker):
+    """Coordinates multi-agent committee for proposals.
+    
+    Production Mode:
+    - Gather insights from other workers
+    - Run multi-agent committee (architect, reviewer, tester, security, optimizer)
+    - Generate weighted consensus proposal
+    - Check autonomy level and execute if allowed
+    
+    Experimental Mode:
+    - Try different agent compositions
+    - Experiment with voting mechanisms
+    - Test different prompt variations
+    - Optimize for proposal quality
+    
+    Context for Experiments:
+    - proposal_acceptance_rate: float
+    - avg_confidence: float
+    - quality_score: float
+    - current_composition: List[str]
+    """
+    
+    def get_interval(self) -> int:
+        return get_agent_config().workers.think_interval  # 480s (8 min)
+    
+    def _production_cycle(self):
+        # Get current codebase state from other workers
+        analysis = self._get_latest_analysis()
+        patterns = self._get_applicable_patterns()
+        
+        # Run multi-agent committee
+        committee_config = get_agent_config().committee
+        proposal = self._run_committee(
+            agents=committee_config.agents,
+            weights=committee_config.weights,
+            analysis=analysis,
+            patterns=patterns
+        )
+        
+        # Check if we can execute
+        autonomy = get_agent_config().autonomy
+        can_execute, reason = autonomy.can_execute(proposal.confidence)
+        
+        if can_execute:
+            self._execute_proposal(proposal)
+        else:
+            self._store_proposal_for_review(proposal, reason)
+```
+
 ## Data Source Integrations
 
-### Git Integration
+### Git Integration (Existing)
 
 ```mermaid
 sequenceDiagram
     participant Git as Git Repository
-    participant Hook as Webhook/Watcher
+    participant Analyzer as GitProjectAnalyzer
     participant Proc as Processor
     participant KG as Knowledge Graph
     
-    Git->>Hook: Commit pushed
-    Hook->>Proc: Process commit
-    Proc->>Proc: Extract entities
-    Note over Proc: Files changed<br/>Functions modified<br/>Libraries added<br/>Patterns detected
+    Git->>Analyzer: ingest_project()
+    Analyzer->>Analyzer: Extract metadata
+    Note over Analyzer: Commits, dependencies<br/>File structure<br/>Decision keywords
+    Analyzer->>Proc: Process entities
     Proc->>KG: Create/update entities
     Proc->>KG: Create relationships
     Note over KG: Commit MODIFIES File<br/>Commit ADDS Library<br/>Commit IMPLEMENTS Decision
@@ -805,13 +1162,119 @@ flowchart TB
     end
 ```
 
+## Autonomy Levels
+
+### Level 1: Propose Only
+
+```mermaid
+flowchart LR
+    THINK[Think Worker<br/>Generates Proposal] --> CHECK{Confidence >= 70%}
+    CHECK -->|Yes| STORE[Store for Review]
+    CHECK -->|No| REJECT[Reject Proposal]
+    STORE --> NOTIFY[Notify User]
+    NOTIFY --> MANUAL[Manual Approval]
+    MANUAL --> EXECUTE[Execute if Approved]
+```
+
+**Configuration:**
+```bash
+AGENT_AUTONOMY_LEVEL=1
+AGENT_MIN_CONFIDENCE_LEVEL_1=0.70
+AGENT_CAN_COMMIT=false
+AGENT_CAN_MERGE_PR=false
+```
+
+### Level 2: Auto-commit to Branches
+
+```mermaid
+flowchart LR
+    THINK[Think Worker<br/>Generates Proposal] --> CHECK{Confidence >= 80%}
+    CHECK -->|Yes| BRANCH[Create Feature Branch]
+    CHECK -->|No| STORE[Store for Review]
+    BRANCH --> COMMIT[Auto-commit Changes]
+    COMMIT --> PR[Create Pull Request]
+    PR --> NOTIFY[Notify for PR Review]
+    NOTIFY --> MANUAL[Manual PR Approval]
+    MANUAL --> MERGE[Merge if Approved]
+```
+
+**Configuration:**
+```bash
+AGENT_AUTONOMY_LEVEL=2
+AGENT_MIN_CONFIDENCE_LEVEL_2=0.80
+AGENT_CAN_COMMIT=true
+AGENT_CAN_MERGE_PR=false
+```
+
+### Level 3: Fully Autonomous
+
+```mermaid
+flowchart LR
+    THINK[Think Worker<br/>Generates Proposal] --> CHECK{Confidence >= 90%}
+    CHECK -->|Yes| BRANCH[Create Feature Branch]
+    CHECK -->|No| STORE[Store for Review]
+    BRANCH --> COMMIT[Auto-commit]
+    COMMIT --> TEST[Run Tests in Docker]
+    TEST --> PASS{Tests Pass?}
+    PASS -->|Yes| PR[Create PR]
+    PASS -->|No| ROLLBACK[Rollback Branch]
+    PR --> MERGE[Auto-merge PR]
+    MERGE --> NOTIFY[Notify User of Change]
+```
+
+**Configuration:**
+```bash
+AGENT_AUTONOMY_LEVEL=3
+AGENT_MIN_CONFIDENCE_LEVEL_3=0.90
+AGENT_CAN_COMMIT=true
+AGENT_CAN_MERGE_PR=true
+```
+
+## Cross-Project Learning Pattern
+
+```mermaid
+flowchart TB
+    subgraph ProjectA["Project A (Django API)"]
+        PA_PATTERN[Stripe webhook pattern]
+        PA_SUCCESS[95% success rate]
+    end
+    
+    subgraph ProjectB["Project B (Flask API)"]
+        PB_NEED[Needs payment integration]
+    end
+    
+    subgraph Learning["Learning Worker"]
+        DETECT[Detect similarity]
+        TRANSFER[Transfer pattern]
+        ADAPT[Adapt to Flask]
+    end
+    
+    subgraph Database["learned_patterns"]
+        PATTERN[Pattern: webhook_idempotency]
+        CONF[Confidence: 0.95]
+        LANG[Language: python]
+        DOMAIN[Domain: payments]
+    end
+    
+    PA_PATTERN --> Database
+    PA_SUCCESS --> Database
+    PB_NEED --> Learning
+    Learning --> DETECT
+    Database --> DETECT
+    DETECT --> TRANSFER
+    TRANSFER --> ADAPT
+    ADAPT --> PB_PATTERN[Apply to Project B]
+```
+
 ## Performance Targets
 
 | Operation | Target Latency | Description |
 |-----------|---------------|-------------|
+| Worker cycle | Variable | 180s-480s depending on worker |
+| Experiment generation | < 5s | LLM call to propose experiment |
 | Simple memory search | < 500ms | Vector search in Qdrant |
 | Decision history query | < 2s | Temporal graph traversal |
 | Cross-project search | < 3s | Multi-graph query |
 | Pattern suggestion | < 1s | Pattern engine lookup |
 | Full repo ingestion | < 5min | 10K file repository |
-| Morning briefing | < 10s | Aggregated intelligence |
+| Multi-agent committee | < 30s | 5-agent consensus with LLM calls |

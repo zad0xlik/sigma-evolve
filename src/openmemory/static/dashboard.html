@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIGMA Agent Dashboard</title>
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/tabs.css">
+    <link rel="stylesheet" href="/static/css/theme.css">
+    
+    <!-- Prevent Alpine from auto-starting -->
+    <script>
+        document.addEventListener('alpine:init', () => {
+            // Alpine initialization will happen after modules load
+        });
+    </script>
+    
+    <!-- JavaScript Modules - Load FIRST -->
+    <script type="module">
+        import { dashboardApp } from '/static/js/dashboard.js';
+        import { projectForm } from '/static/js/forms/projectForm.js';
+        import { workerForm } from '/static/js/forms/workerForm.js';
+        
+        // Register components globally (for x-data to find them)
+        window.dashboardApp = dashboardApp;
+        window.projectForm = projectForm;
+        window.workerForm = workerForm;
+    </script>
+    
+    <!-- Alpine.js - Loads AFTER modules are registered -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body>
+    <div class="container" x-data="dashboardApp()" x-init="init()">
+        <!-- Header -->
+        <header>
+            <h1>🤖 SIGMA Agent Dashboard</h1>
+            <p class="subtitle">Self-Improving Multi-Agent System for Code Evolution</p>
+            <div class="timestamp" x-text="lastUpdate ? `Last updated: ${lastUpdate}` : ''"></div>
+        </header>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Projects</div>
+                <div class="stat-value" x-text="stats.totalProjects"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Pending Proposals</div>
+                <div class="stat-value" x-text="stats.pendingProposals"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Success Rate</div>
+                <div class="stat-value" x-text="stats.successRate"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Learned Patterns</div>
+                <div class="stat-value" x-text="stats.totalPatterns"></div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab" :class="{ active: currentTab === 'proposals' }" @click="switchTab('proposals')">📋 Proposals</button>
+            <button class="tab" :class="{ active: currentTab === 'experiments' }" @click="switchTab('experiments')">🧪 Experiments</button>
+            <button class="tab" :class="{ active: currentTab === 'workers' }" @click="switchTab('workers')">⚙️ Workers</button>
+            <button class="tab" :class="{ active: currentTab === 'patterns' }" @click="switchTab('patterns')">🧬 Patterns</button>
+            <button class="tab" :class="{ active: currentTab === 'projects' }" @click="switchTab('projects')">📁 Projects</button>
+        </div>
+
+        <!-- Proposals Tab -->
+        <div x-show="currentTab === 'proposals'" class="content-section" x-transition>
+            <h2>Code Improvement Proposals</h2>
+            
+            <template x-if="proposals.length === 0">
+                <p class="loading">No proposals found</p>
+            </template>
+            
+            <template x-for="proposal in proposals" :key="proposal.proposal_id">
+                <div class="proposal-card">
+                    <div class="proposal-header">
+                        <div class="proposal-title" x-text="proposal.title"></div>
+                        <span class="badge" :class="getBadgeClass(proposal.status)" x-text="proposal.status"></span>
+                    </div>
+                    <p style="color: #666; margin-bottom: 15px;" x-text="proposal.description || 'No description'"></p>
+                    <div>
+                        <strong>Confidence:</strong> <span x-text="formatConfidence(proposal.confidence)"></span>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" :style="`width: ${proposal.confidence * 100}%`"></div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <strong>Critic Score:</strong> <span x-text="formatConfidence(proposal.critic_score)"></span>
+                    </div>
+                    <template x-if="proposal.pr_url">
+                        <div style="margin-top: 10px;">
+                            <strong>PR:</strong> <a :href="proposal.pr_url" target="_blank" x-text="proposal.pr_url"></a>
+                        </div>
+                    </template>
+                    <div class="timestamp" x-text="`Created: ${formatDate(proposal.created_at)}`"></div>
+                    <div style="margin-top: 15px;">
+                        <template x-if="proposal.status === 'pending'">
+                            <div>
+                                <button class="btn btn-approve" @click="handleProposalAction(proposal.proposal_id, true)">✓ Approve</button>
+                                <button class="btn btn-reject" @click="handleProposalAction(proposal.proposal_id, false)">✗ Reject</button>
+                            </div>
+                        </template>
+                        <button class="btn btn-view" @click="viewProposal(proposal.proposal_id)">View Details</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <!-- Experiments Tab -->
+        <div x-show="currentTab === 'experiments'" class="content-section" x-transition>
+            <h2>Experimental Approaches</h2>
+            
+            <template x-if="experiments.length === 0">
+                <p class="loading">No experiments found</p>
+            </template>
+            
+            <template x-for="exp in experiments" :key="exp.experiment_id">
+                <div class="experiment-card" :class="getExperimentClass(exp)">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <strong style="font-size: 1.2em;" x-text="exp.experiment_name"></strong>
+                        <template x-if="exp.promoted_to_production">
+                            <span class="badge badge-approved">PROMOTED</span>
+                        </template>
+                    </div>
+                    <div style="margin-bottom: 10px;"><strong>Worker:</strong> <span x-text="exp.worker_name"></span></div>
+                    <div style="margin-bottom: 10px;"><strong>Hypothesis:</strong> <span x-text="exp.hypothesis || 'N/A'"></span></div>
+                    <template x-if="exp.improvement !== null">
+                        <div style="margin-bottom: 10px;">
+                            <strong>Improvement:</strong> <span x-text="formatConfidence(exp.improvement)"></span>
+                        </div>
+                    </template>
+                    <div class="timestamp" x-text="`Created: ${formatDate(exp.created_at)}`"></div>
+                </div>
+            </template>
+        </div>
+
+        <!-- Workers Tab -->
+        <div x-show="currentTab === 'workers'" class="content-section" x-transition>
+            <h2>Worker Statistics</h2>
+            
+            <!-- Worker Control Form -->
+            <div class="form-container" x-data="workerForm()">
+                <div class="form-header" @click="toggle()">
+                    <div class="form-title">⚡ Start Worker</div>
+                    <button class="form-toggle" :class="{ collapsed: !isOpen }">▼</button>
+                </div>
+                
+                <div x-show="isOpen" x-transition>
+                    <form @submit.prevent="submit()">
+                        <!-- Worker Type -->
+                        <div class="form-group">
+                            <label class="form-label">Worker Type *</label>
+                            <select x-model="form.worker_type" class="form-select" :class="{ error: errors.worker_type }">
+                                <option value="">Select worker type...</option>
+                                <template x-for="worker in workerTypes" :key="worker.value">
+                                    <option :value="worker.value" x-text="`${worker.label} - ${worker.description}`"></option>
+                                </template>
+                            </select>
+                            <div x-show="errors.worker_type" class="form-error" x-text="errors.worker_type"></div>
+                        </div>
+                        
+                        <!-- Project -->
+                        <div class="form-group">
+                            <label class="form-label">Project *</label>
+                            <select x-model.number="form.project_id" class="form-select" :class="{ error: errors.project_id }">
+                                <option value="">Select project...</option>
+                                <template x-for="project in projects" :key="project.project_id">
+                                    <option :value="project.project_id" x-text="getProjectName(project.project_id)"></option>
+                                </template>
+                            </select>
+                            <div x-show="errors.project_id" class="form-error" x-text="errors.project_id"></div>
+                            <div class="form-help">Choose the project for this worker to analyze</div>
+                        </div>
+                        
+                        <!-- Advanced Options -->
+                        <div class="form-group">
+                            <button type="button" class="btn btn-secondary" @click="showAdvanced = !showAdvanced" x-text="showAdvanced ? 'Hide Advanced Options' : 'Show Advanced Options'"></button>
+                        </div>
+                        
+                        <div x-show="showAdvanced" x-transition>
+                            <div class="form-group">
+                                <label class="form-label">Max Iterations</label>
+                                <input type="number" x-model.number="form.max_iterations" class="form-input" min="1" max="100">
+                                <div class="form-help">Maximum number of iterations to run (1-100)</div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">Dream Probability (<span x-text="dreamProbabilityPercent + '%'"></span>)</label>
+                                <input type="range" x-model.number="form.dream_probability" min="0" max="1" step="0.05" style="width: 100%;">
+                                <div class="form-help">Probability of experimental cycles (0-100%)</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Submit -->
+                        <div class="form-group">
+                            <button type="submit" class="btn btn-primary" :disabled="isSubmitting">
+                                <span x-text="isSubmitting ? 'Starting...' : 'Start Worker'"></span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Worker Stats -->
+            <template x-if="workers.length === 0">
+                <p class="loading">No worker stats found</p>
+            </template>
+            
+            <div class="worker-grid">
+                <template x-for="worker in workers" :key="worker.worker_name">
+                    <div class="worker-card">
+                        <div class="worker-name">
+                            <span class="health-indicator" :class="getHealthClass(worker)"></span>
+                            <span x-text="worker.worker_name"></span>
+                        </div>
+                        <div class="worker-stat">
+                            <span>Cycles Run:</span>
+                            <strong x-text="worker.cycles_run"></strong>
+                        </div>
+                        <div class="worker-stat">
+                            <span>Experiments:</span>
+                            <strong x-text="worker.experiments_run"></strong>
+                        </div>
+                        <div class="worker-stat">
+                            <span>Total Time:</span>
+                            <strong x-text="formatTime(worker.total_time)"></strong>
+                        </div>
+                        <div class="worker-stat">
+                            <span>Errors:</span>
+                            <strong :style="`color: ${worker.errors > 0 ? '#dc3545' : '#28a745'}`" x-text="worker.errors"></strong>
+                        </div>
+                        <template x-if="worker.last_run">
+                            <div class="timestamp" x-text="`Last run: ${formatDate(worker.last_run)}`"></div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Patterns Tab -->
+        <div x-show="currentTab === 'patterns'" class="content-section" x-transition>
+            <h2>Learned Patterns</h2>
+            
+            <template x-if="patterns.length === 0">
+                <p class="loading">No patterns found</p>
+            </template>
+            
+            <template x-for="pattern in patterns" :key="pattern.pattern_id">
+                <div class="pattern-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <strong style="font-size: 1.3em;" x-text="pattern.pattern_name"></strong>
+                        <span class="badge badge-approved" x-text="pattern.pattern_type"></span>
+                    </div>
+                    <p style="color: #666; margin-bottom: 10px;" x-text="pattern.description || 'No description'"></p>
+                    <div style="margin-bottom: 10px;"><strong>Language:</strong> <span x-text="pattern.language"></span></div>
+                    <template x-if="pattern.framework">
+                        <div style="margin-bottom: 10px;"><strong>Framework:</strong> <span x-text="pattern.framework"></span></div>
+                    </template>
+                    <div style="margin-bottom: 10px;">
+                        <strong>Confidence:</strong> <span x-text="formatConfidence(pattern.confidence)"></span>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" :style="`width: ${pattern.confidence * 100}%`"></div>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <strong>Success:</strong> <span x-text="pattern.success_count"></span> |
+                        <strong>Failures:</strong> <span x-text="pattern.failure_count"></span>
+                    </div>
+                    <div class="timestamp" x-text="`Created: ${formatDate(pattern.created_at)}`"></div>
+                </div>
+            </template>
+        </div>
+
+        <!-- Projects Tab -->
+        <div x-show="currentTab === 'projects'" class="content-section" x-transition>
+            <h2>Tracked Projects</h2>
+            
+            <!-- Project Registration Form -->
+            <div class="form-container" x-data="projectForm()">
+                <div class="form-header" @click="toggle()">
+                    <div class="form-title">➕ Register New Project</div>
+                    <button class="form-toggle" :class="{ collapsed: !isOpen }">▼</button>
+                </div>
+                
+                <div x-show="isOpen" x-transition>
+                    <form @submit.prevent="submit()">
+                        <!-- Repo URL -->
+                        <div class="form-group">
+                            <label class="form-label">Repository URL *</label>
+                            <input 
+                                type="text" 
+                                x-model="form.repo_url" 
+                                class="form-input" 
+                                :class="{ error: errors.repo_url }"
+                                placeholder="https://github.com/username/repo"
+                            >
+                            <div x-show="errors.repo_url" class="form-error" x-text="errors.repo_url"></div>
+                            <div class="form-help">GitHub repository URL (e.g., https://github.com/zad0xlik/kgdreaminvest)</div>
+                        </div>
+                        
+                        <!-- Branch -->
+                        <div class="form-group">
+                            <label class="form-label">Branch</label>
+                            <input 
+                                type="text" 
+                                x-model="form.branch" 
+                                class="form-input"
+                                placeholder="main"
+                            >
+                            <div class="form-help">Git branch to analyze (default: main)</div>
+                        </div>
+                        
+                        <!-- Language -->
+                        <div class="form-group">
+                            <label class="form-label">Language *</label>
+                            <select x-model="form.language" class="form-select" :class="{ error: errors.language }">
+                                <option value="">Select language...</option>
+                                <template x-for="lang in languages" :key="lang">
+                                    <option :value="lang" x-text="lang"></option>
+                                </template>
+                            </select>
+                            <div x-show="errors.language" class="form-error" x-text="errors.language"></div>
+                        </div>
+                        
+                        <!-- Framework -->
+                        <div class="form-group">
+                            <label class="form-label">Framework (Optional)</label>
+                            <input 
+                                type="text" 
+                                x-model="form.framework" 
+                                class="form-input"
+                                placeholder="e.g., fastapi, react, express"
+                            >
+                            <div class="form-help">Framework used in the project</div>
+                        </div>
+                        
+                        <!-- Domain -->
+                        <div class="form-group">
+                            <label class="form-label">Domain (Optional)</label>
+                            <input 
+                                type="text" 
+                                x-model="form.domain" 
+                                class="form-input"
+                                placeholder="e.g., investment-research, web-app"
+                            >
+                            <div class="form-help">Project domain or category</div>
+                        </div>
+                        
+                        <!-- Submit -->
+                        <div class="form-group">
+                            <button type="submit" class="btn btn-primary" :disabled="isSubmitting">
+                                <span x-text="isSubmitting ? 'Registering...' : 'Register Project'"></span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Projects List -->
+            <template x-if="projects.length === 0">
+                <p class="loading">No projects found</p>
+            </template>
+            
+            <template x-for="project in projects" :key="project.project_id">
+                <div class="project-card">
+                    <div style="font-size: 1.3em; font-weight: 600; margin-bottom: 10px;" x-text="project.repo_url"></div>
+                    <div style="margin-bottom: 10px;"><strong>Branch:</strong> <span x-text="project.branch"></span></div>
+                    <template x-if="project.language">
+                        <div style="margin-bottom: 10px;"><strong>Language:</strong> <span x-text="project.language"></span></div>
+                    </template>
+                    <template x-if="project.framework">
+                        <div style="margin-bottom: 10px;"><strong>Framework:</strong> <span x-text="project.framework"></span></div>
+                    </template>
+                    <template x-if="project.domain">
+                        <div style="margin-bottom: 10px;"><strong>Domain:</strong> <span x-text="project.domain"></span></div>
+                    </template>
+                    <div class="timestamp">
+                        <span x-text="`Created: ${formatDate(project.created_at)}`"></span>
+                        <template x-if="project.last_analyzed">
+                            <span x-text="` | Last analyzed: ${formatDate(project.last_analyzed)}`"></span>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <!-- Refresh Button -->
+        <button class="refresh-btn" @click="refreshData()" title="Refresh Data (Cmd/Ctrl+R)">↻</button>
+
+        <!-- Toast Notifications -->
+        <div class="toast-container">
+            <template x-for="toast in toasts" :key="toast.id">
+                <div class="toast" :class="`toast-${toast.type}`" x-transition>
+                    <div class="toast-icon">
+                        <template x-if="toast.type === 'success'">✓</template>
+                        <template x-if="toast.type === 'error'">✗</template>
+                        <template x-if="toast.type === 'info'">ℹ</template>
+                    </div>
+                    <div class="toast-message" x-text="toast.message"></div>
+                    <button class="toast-close" @click="removeToast(toast.id)">×</button>
+                </div>
+            </template>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div x-show="loading" class="loading-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.8); z-index: 9999;">
+            <div class="spinner"></div>
+        </div>
+    </div>
+</body>
+</html>

@@ -43,6 +43,11 @@ dependencies = [
     
     # SIGMA Phase 2: Git Integration
     "gitpython>=3.1.0",
+    
+    # SIGMA Phase 3: Multi-Agent System
+    "docker>=7.0.0",        # Container execution for safe code changes
+    "PyGithub>=2.0.0",      # GitHub API for autonomous PR creation/merging
+    "radon>=6.0.0",         # Code complexity metrics for Analysis Worker
 ]
 
 [project.optional-dependencies]
