@@ -17,13 +17,20 @@ flowchart TB
         OR[OpenRouter]
     end
     
-    subgraph Future["Phase 2: Intelligence 📋"]
-        GIT[GitPython]
-        RESEARCH[Research Engine]
-        PATTERN[Pattern Learner]
+    subgraph Phase2["Phase 2: Git Integration ✅"]
+        GIT[GitPython 3.1.46]
+        ANALYZER[GitProjectAnalyzer]
+        DEPS[Dependency Detection]
     end
     
-    Current --> Phase1 --> Future
+    subgraph Phase3["Phase 3: Multi-Agent System 🔄"]
+        AGENTS[5 Worker Agents]
+        DREAMER[DreamerMetaAgent]
+        DOCKER[Docker Executor]
+        GITHUB[GitHub API]
+    end
+    
+    Current --> Phase1 --> Phase2 --> Phase3
 ```
 
 ## Core Technologies
@@ -86,8 +93,8 @@ mcp==1.3.2
 mem0ai==0.1.37
 qdrant-client==1.12.1
 
-# Knowledge Graph (Adding)
-graphiti-core>=0.3.0
+# Knowledge Graph (Phase 1)
+graphiti-core>=0.5.0
 neo4j>=5.0.0
 
 # Database
@@ -98,9 +105,14 @@ psycopg2-binary==2.9.10
 # AI
 openai==1.57.4
 
-# Integrations
+# Integrations (Phase 2)
 slack-sdk==3.33.5
-gitpython>=3.1.0  # Planned
+gitpython==3.1.46  # ✅ Installed
+
+# Multi-Agent System (Phase 3) - Planned
+# docker>=7.0.0  # Container execution
+# PyGithub>=2.0.0  # GitHub API
+# radon>=6.0.0  # Code complexity metrics
 
 # Background Jobs
 apscheduler==3.10.4
@@ -385,33 +397,31 @@ flowchart TB
 
 ## Project Structure
 
-```
-mcp-memory-server-sigma/
-├── docker/
-│   ├── docker-compose.yaml    # Full stack
-│   ├── Dockerfile
-│   └── entrypoint.sh
-├── src/
-│   └── openmemory/
-│       ├── app/
-│       │   ├── mcp_server.py          # MCP tools
-│       │   ├── models.py              # SQLAlchemy models
-│       │   ├── routers/
-│       │   │   ├── memories.py
-│       │   │   ├── apps.py
-│       │   │   ├── graph.py           # NEW: Graph endpoints
-│       │   │   └── intelligence.py    # NEW: Intelligence endpoints
-│       │   └── utils/
-│       │       ├── memory.py
-│       │       ├── graphiti.py        # NEW: Graphiti client
-│       │       ├── query_router.py    # NEW: Query routing
-│       │       ├── git_integration.py # NEW: Git processing
-│       │       └── pattern_learner.py # NEW: Pattern learning
-│       └── alembic/                   # Database migrations
-├── memory-bank/                       # Project documentation
-├── aws/                               # AWS deployment
-└── digitalocean/                      # DO deployment
-```
+**Root Level:**
+- `docker/` - Docker configuration (compose, Dockerfile, entrypoint)
+- `src/openmemory/` - Main application code
+- `memory-bank/` - Project documentation
+- `aws/` - AWS deployment configuration
+- `digitalocean/` - DigitalOcean deployment
+
+**Application (`src/openmemory/app/`):**
+- `mcp_server.py` - MCP tools implementation
+- `models.py` - SQLAlchemy database models
+- `routers/` - FastAPI route handlers
+  - `memories.py` - Memory CRUD endpoints
+  - `apps.py` - Application management
+  - `graph.py` - Knowledge graph endpoints
+  - `intelligence.py` - Intelligence features
+
+**Utilities (`src/openmemory/app/utils/`):**
+- `memory.py` - Memory operations
+- `graphiti.py` - Graphiti client integration
+- `query_router.py` - Query routing logic
+- `git_integration.py` - Git repository processing
+- `pattern_learner.py` - Pattern learning system
+
+**Database:**
+- `alembic/` - Database migrations and versioning
 
 ## Performance Targets
 
@@ -530,30 +540,380 @@ alembic upgrade head
 alembic downgrade -1
 ```
 
+## Multi-Agent System Architecture (Phase 3)
+
+### Worker Thread Model
+
+```python
+# Threading architecture for 5 workers
+
+class WorkerController:
+    """Manages all worker threads"""
+    def __init__(self):
+        self.workers: List[BaseWorker] = []
+        self.dreamer = DreamerMetaAgent()
+        
+    def start_all(self):
+        """Start all 5 workers in background threads"""
+        self.workers = [
+            AnalysisWorker(self.db, self.dreamer),
+            DreamWorker(self.db, self.dreamer),
+            RecallWorker(self.db, self.dreamer),
+            LearningWorker(self.db, self.dreamer),
+            ThinkWorker(self.db, self.dreamer)
+        ]
+        
+        for worker in self.workers:
+            worker.start()
+    
+    def stop_all(self):
+        """Graceful shutdown of all workers"""
+        for worker in self.workers:
+            worker.stop()
+        
+        for worker in self.workers:
+            worker.thread.join(timeout=10)
+```
+
+### Database Schema for Agents
+
+```python
+# New tables added in Phase 3
+
+class Project(Base):
+    """Track multiple projects for cross-learning"""
+    __tablename__ = "projects"
+    
+    project_id = Column(Integer, primary_key=True)
+    repo_url = Column(String, nullable=False)
+    branch = Column(String, default="main")
+    workspace_path = Column(String)
+    language = Column(String)  # python, javascript, etc.
+    framework = Column(String)  # django, react, etc.
+    domain = Column(String)  # ecommerce, saas, etc.
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_analyzed = Column(DateTime)
+
+class CodeSnapshot(Base):
+    """Store analysis results over time"""
+    __tablename__ = "code_snapshots"
+    
+    snapshot_id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.project_id"))
+    complexity = Column(Float)
+    test_coverage = Column(Float)
+    issues_found = Column(Integer)
+    metrics_json = Column(Text)  # JSON with detailed metrics
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class Proposal(Base):
+    """Agent committee decisions"""
+    __tablename__ = "proposals"
+    
+    proposal_id = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.project_id"))
+    title = Column(String, nullable=False)
+    description = Column(Text)
+    agents_json = Column(Text)  # Which agents participated
+    changes_json = Column(Text)  # Proposed changes
+    confidence = Column(Float)
+    critic_score = Column(Float)
+    status = Column(String)  # pending, approved, rejected, executed
+    created_at = Column(DateTime, default=datetime.utcnow)
+    executed_at = Column(DateTime)
+    pr_url = Column(String)
+    commit_sha = Column(String)
+
+class Experiment(Base):
+    """Track dreaming experiments"""
+    __tablename__ = "experiments"
+    
+    experiment_id = Column(Integer, primary_key=True)
+    worker_name = Column(String, nullable=False)
+    experiment_name = Column(String)
+    hypothesis = Column(Text)
+    approach = Column(Text)
+    baseline_metrics = Column(Text)
+    result_metrics = Column(Text)
+    success = Column(Boolean)
+    improvement = Column(Float)  # % improvement
+    promoted_to_production = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime)
+
+class LearnedPattern(Base):
+    """Cross-project pattern library"""
+    __tablename__ = "learned_patterns"
+    
+    pattern_id = Column(Integer, primary_key=True)
+    pattern_name = Column(String, nullable=False)
+    pattern_type = Column(String)  # error_handling, auth, caching, etc.
+    description = Column(Text)
+    code_template = Column(Text)
+    language = Column(String)
+    framework = Column(String)
+    domain = Column(String)
+    confidence = Column(Float)
+    success_count = Column(Integer, default=0)
+    failure_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_used = Column(DateTime)
+
+class WorkerStats(Base):
+    """Performance tracking for workers"""
+    __tablename__ = "worker_stats"
+    
+    stat_id = Column(Integer, primary_key=True)
+    worker_name = Column(String, nullable=False)
+    cycles_run = Column(Integer, default=0)
+    experiments_run = Column(Integer, default=0)
+    total_time = Column(Float, default=0.0)
+    errors = Column(Integer, default=0)
+    last_run = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+```
+
+### Execution Infrastructure
+
+```python
+# Docker execution for safe code changes
+
+class DockerExecutor:
+    """Execute code changes in isolated Docker containers"""
+    
+    def __init__(self):
+        self.client = docker.from_env()
+    
+    def create_project_container(self, project_id: int, workspace: str) -> str:
+        """Create isolated container for project"""
+        container = self.client.containers.run(
+            image="python:3.11-slim",
+            command="sleep infinity",
+            detach=True,
+            volumes={workspace: {'bind': '/workspace', 'mode': 'rw'}},
+            working_dir='/workspace',
+            network_mode='bridge'
+        )
+        return container.id
+    
+    def execute_in_container(self, container_id: str, command: str) -> dict:
+        """Execute command in container and return result"""
+        container = self.client.containers.get(container_id)
+        exit_code, output = container.exec_run(command)
+        
+        return {
+            'exit_code': exit_code,
+            'output': output.decode('utf-8'),
+            'success': exit_code == 0
+        }
+    
+    def run_tests(self, container_id: str) -> dict:
+        """Run test suite in container"""
+        # Detect test framework
+        framework = self._detect_test_framework(container_id)
+        
+        # Run appropriate test command
+        if framework == 'pytest':
+            result = self.execute_in_container(container_id, 'pytest --cov --json')
+        elif framework == 'jest':
+            result = self.execute_in_container(container_id, 'npm test -- --coverage --json')
+        else:
+            result = {'success': False, 'error': 'Unknown test framework'}
+        
+        return result
+    
+    def cleanup_container(self, container_id: str):
+        """Stop and remove container"""
+        container = self.client.containers.get(container_id)
+        container.stop()
+        container.remove()
+```
+
+### Git/GitHub Operations
+
+```python
+# Git operations for autonomous commits and PRs
+
+class GitOperations:
+    """Handle Git and GitHub operations"""
+    
+    def __init__(self, repo_path: str, token: str):
+        self.repo = git.Repo(repo_path)
+        self.gh = Github(token)
+    
+    def create_branch(self, branch_name: str) -> bool:
+        """Create new feature branch"""
+        try:
+            self.repo.git.checkout('-b', branch_name)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create branch: {e}")
+            return False
+    
+    def commit_changes(self, files: List[str], message: str) -> str:
+        """Stage and commit changes"""
+        self.repo.index.add(files)
+        commit = self.repo.index.commit(message)
+        return commit.hexsha
+    
+    def push_branch(self, branch_name: str) -> bool:
+        """Push branch to remote"""
+        try:
+            origin = self.repo.remote('origin')
+            origin.push(branch_name)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to push branch: {e}")
+            return False
+    
+    def create_pr(self, branch_name: str, title: str, body: str) -> str:
+        """Create pull request"""
+        repo_full_name = self._get_repo_full_name()
+        gh_repo = self.gh.get_repo(repo_full_name)
+        
+        pr = gh_repo.create_pull(
+            title=title,
+            body=body,
+            head=branch_name,
+            base='main'
+        )
+        
+        return pr.html_url
+    
+    def merge_pr(self, pr_number: int) -> bool:
+        """Merge pull request"""
+        repo_full_name = self._get_repo_full_name()
+        gh_repo = self.gh.get_repo(repo_full_name)
+        
+        pr = gh_repo.get_pull(pr_number)
+        result = pr.merge(merge_method='squash')
+        
+        return result.merged
+```
+
 ## Technology Roadmap
 
 ```mermaid
 timeline
     title SIGMA Technology Evolution
     
-    section Current
+    section Phase 1 (Complete)
         Foundation : PostgreSQL + Qdrant
                    : FastAPI + MCP
                    : Slack Integration
-    
-    section Phase 1
         Knowledge Graph : Graphiti + Neo4j
                        : Temporal Queries
                        : Decision Tracking
     
-    section Phase 2
-        Intelligence : Git Integration
-                    : Pattern Learning
-                    : Research Engine
+    section Phase 2 (Complete)
+        Git Integration : GitPython 3.1.46
+                       : Repository Analysis
+                       : Dependency Detection
     
-    section Phase 3
-        Advanced : Cross-Project Synthesis
+    section Phase 3 (In Progress)
+        Multi-Agent System : 5 Worker Agents
+                          : DreamerMetaAgent
+                          : Experimentation
+        
+    section Phase 4 (Planned)
+        Execution Layer : Docker Executor
+                       : GitHub Operations
+                       : Test Runner
+        Advanced : Cross-Project Learning
+                : Web UI Dashboard
                 : IDE Extensions
-                : Autonomous Agents
 ```
+
+## Agent System Configuration
+
+### Environment Variables (Phase 3)
+
+```bash
+# ========================================
+# AGENT AUTONOMY CONFIGURATION
+# ========================================
+AGENT_AUTONOMY_LEVEL=1  # 1=Propose, 2=Auto-commit, 3=Auto-merge
+AGENT_MIN_CONFIDENCE_LEVEL_1=0.70  # Level 1 threshold
+AGENT_MIN_CONFIDENCE_LEVEL_2=0.80  # Level 2 threshold
+AGENT_MIN_CONFIDENCE_LEVEL_3=0.90  # Level 3 threshold
+AGENT_CAN_COMMIT=false
+AGENT_CAN_MERGE_PR=false
+
+# ========================================
+# PROJECT CONFIGURATION
+# ========================================
+PROJECT_REPO_URL=https://github.com/user/repo.git
+PROJECT_BRANCH=main
+PROJECT_WORKSPACE=/workspace/project
+GITHUB_TOKEN=ghp_your_token_here
+
+# ========================================
+# WORKER INTERVALS (seconds)
+# ========================================
+AGENT_ANALYSIS_WORKER_INTERVAL=300  # 5 minutes
+AGENT_DREAM_WORKER_INTERVAL=240     # 4 minutes
+AGENT_RECALL_WORKER_INTERVAL=180    # 3 minutes
+AGENT_LEARNING_WORKER_INTERVAL=360  # 6 minutes
+AGENT_THINK_WORKER_INTERVAL=480     # 8 minutes
+
+# ========================================
+# EVOLUTION SETTINGS
+# ========================================
+AGENT_EVOLUTION_RATE=0.15  # 15% of cycles are experimental
+AGENT_EXPERIMENT_SUCCESS_THRESHOLD=0.20  # 20% improvement to promote
+
+# ========================================
+# DOCKER EXECUTION
+# ========================================
+AGENT_DOCKER_IMAGE=python:3.11-slim
+AGENT_TEST_TIMEOUT=300  # 5 minutes
+AGENT_BUILD_TIMEOUT=600  # 10 minutes
+
+# ========================================
+# AGENT COMMITTEE (weights sum to 1.0)
+# ========================================
+AGENT_COMMITTEE_ARCHITECT_WEIGHT=0.25
+AGENT_COMMITTEE_REVIEWER_WEIGHT=0.20
+AGENT_COMMITTEE_TESTER_WEIGHT=0.20
+AGENT_COMMITTEE_SECURITY_WEIGHT=0.20
+AGENT_COMMITTEE_OPTIMIZER_WEIGHT=0.15
+
+# ========================================
+# CROSS-PROJECT LEARNING
+# ========================================
+AGENT_CROSS_PROJECT_ENABLED=true
+AGENT_MIN_LANGUAGE_SIMILARITY=0.80
+AGENT_MIN_FRAMEWORK_SIMILARITY=0.70
+AGENT_MIN_DOMAIN_SIMILARITY=0.60
+
+# ========================================
+# EXTERNAL INTELLIGENCE
+# ========================================
+AGENT_CONTEXT7_ENABLED=false  # Documentation lookup
+AGENT_PLAYWRIGHT_ENABLED=false  # Web research
+```
+
+## Project Structure Updates (Phase 3)
+
+**Agent System (`src/openmemory/app/`):**
+- `agent_config.py` ✅ - Agent configuration dataclasses
+- `agents/` ✅ - Agent system package
+  - `__init__.py` ✅
+  - `base_worker.py` ✅ - BaseWorker abstract class
+  - `dreamer.py` ✅ - DreamerMetaAgent orchestrator
+  - `analysis_worker.py` ⏳ - Code analysis worker
+  - `dream_worker.py` ⏳ - Knowledge graph worker
+  - `recall_worker.py` ⏳ - Semantic search worker
+  - `learning_worker.py` ⏳ - Pattern learning worker
+  - `think_worker.py` ⏳ - Multi-agent committee worker
+
+**Utilities (`src/openmemory/app/utils/`):**
+- `docker_executor.py` ✅ - Docker container execution
+- `git_operations.py` ✅ - Git/GitHub operations
+- `cross_project.py` ✅ - Cross-project learning
+- `test_runner.py` ⏳ - Test execution (TODO)
+
+**Database:**
+- `alembic/versions/add_agent_system_tables.py` ✅ - 7 new agent tables
+
 ### AWS Deployment

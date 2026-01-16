@@ -241,3 +241,117 @@ def after_memory_update(mapper, connection, target):
     db = Session(bind=connection)
     categorize_memory(target, db)
     db.close()
+
+
+# ===== SIGMA AGENT SYSTEM MODELS =====
+
+class Project(Base):
+    """Project being analyzed and improved by SIGMA agents"""
+    __tablename__ = "projects"
+    
+    project_id = Column(Integer, primary_key=True, autoincrement=True)
+    repo_url = Column(String, nullable=False)
+    branch = Column(String, default='main')
+    workspace_path = Column(String, nullable=False)
+    language = Column(String, index=True)
+    framework = Column(String, index=True)
+    domain = Column(String, index=True)
+    created_at = Column(DateTime, default=get_current_utc_time, index=True)
+    last_analyzed = Column(DateTime, nullable=True, index=True)
+
+
+class CodeSnapshot(Base):
+    """Snapshot of code analysis results"""
+    __tablename__ = "code_snapshots"
+    
+    snapshot_id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.project_id"), nullable=False, index=True)
+    complexity = Column(sa.Float, default=0.0)
+    test_coverage = Column(sa.Float, default=0.0)
+    issues_found = Column(Integer, default=0)
+    metrics_json = Column(String)
+    created_at = Column(DateTime, default=get_current_utc_time, index=True)
+
+
+class Proposal(Base):
+    """Code improvement proposal from Dream Worker"""
+    __tablename__ = "proposals"
+    
+    proposal_id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.project_id"), nullable=False, index=True)
+    title = Column(String, nullable=False)
+    description = Column(String)
+    agents_json = Column(String)
+    changes_json = Column(String)
+    confidence = Column(sa.Float, default=0.0)
+    critic_score = Column(sa.Float, default=0.0)
+    status = Column(String, default='pending', index=True)
+    pr_url = Column(String, nullable=True)
+    commit_sha = Column(String, nullable=True)
+    created_at = Column(DateTime, default=get_current_utc_time, index=True)
+    executed_at = Column(DateTime, nullable=True, index=True)
+
+
+class Experiment(Base):
+    """Experiment conducted by DreamerMetaAgent"""
+    __tablename__ = "experiments"
+    
+    experiment_id = Column(Integer, primary_key=True, autoincrement=True)
+    worker_name = Column(String, nullable=False, index=True)
+    experiment_name = Column(String, nullable=False)
+    hypothesis = Column(String)
+    approach = Column(String)
+    baseline_metrics = Column(String)
+    result_metrics = Column(String)
+    success = Column(Boolean, nullable=True, index=True)
+    improvement = Column(sa.Float, nullable=True)
+    promoted_to_production = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime, default=get_current_utc_time, index=True)
+    completed_at = Column(DateTime, nullable=True, index=True)
+
+
+class LearnedPattern(Base):
+    """Patterns learned from successful proposals"""
+    __tablename__ = "learned_patterns"
+    
+    pattern_id = Column(Integer, primary_key=True, autoincrement=True)
+    pattern_name = Column(String, nullable=False)
+    pattern_type = Column(String, nullable=False, index=True)
+    description = Column(String)
+    code_template = Column(String)
+    language = Column(String, nullable=False, index=True)
+    framework = Column(String, nullable=True, index=True)
+    domain = Column(String, nullable=True, index=True)
+    confidence = Column(sa.Float, default=0.0)
+    success_count = Column(Integer, default=0)
+    failure_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=get_current_utc_time, index=True)
+    last_used = Column(DateTime, nullable=True, index=True)
+
+
+class CrossProjectLearning(Base):
+    """Cross-project learning opportunities"""
+    __tablename__ = "cross_project_learnings"
+    
+    learning_id = Column(Integer, primary_key=True, autoincrement=True)
+    source_project_id = Column(Integer, ForeignKey("projects.project_id"), nullable=False, index=True)
+    target_project_id = Column(Integer, ForeignKey("projects.project_id"), nullable=False, index=True)
+    pattern_id = Column(Integer, ForeignKey("learned_patterns.pattern_id"), nullable=False, index=True)
+    similarity_score = Column(sa.Float, default=0.0)
+    applied = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime, default=get_current_utc_time, index=True)
+    applied_at = Column(DateTime, nullable=True, index=True)
+
+
+class WorkerStats(Base):
+    """Statistics for worker performance tracking"""
+    __tablename__ = "worker_stats"
+    
+    stat_id = Column(Integer, primary_key=True, autoincrement=True)
+    worker_name = Column(String, nullable=False, index=True)
+    cycles_run = Column(Integer, default=0)
+    experiments_run = Column(Integer, default=0)
+    total_time = Column(sa.Float, default=0.0)
+    errors = Column(Integer, default=0)
+    last_run = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=get_current_utc_time, index=True)

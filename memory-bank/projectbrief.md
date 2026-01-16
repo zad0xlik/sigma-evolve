@@ -1,180 +1,194 @@
-# Project Brief: SIGMA - The Self-Evolving Developer Intelligence System
+# Project Brief: SIGMA - Self-Evolving Agent Intelligence for Code
 
 ## Project Name & Meaning
 
-**SIGMA (Σ)** = **S**elf-evolving **I**ntelligence for **G**raphs, **M**emory & **A**nalysis
+**SIGMA (Σ)** = **S**elf-evolving **I**ntelligence for **G**it, **M**odules & **A**nalysis
 
 Also represents:
-- **Σ (Summation)**: Aggregates ALL your development knowledge
-- **Σ (Synthesis)**: Combines code + decisions + research into understanding
-- **Σ (Standard Deviation)**: Continuous measurement and improvement
-- **Σ (Systematic)**: Graph-based, structured approach to memory
+- **Σ (Summation)**: Aggregates ALL your development knowledge across projects
+- **Σ (Synthesis)**: Combines code + patterns + learnings into intelligence
+- **Σ (Standard Deviation)**: Continuous measurement and improvement through experimentation
+- **Σ (Systematic)**: Graph-based, structured approach to code understanding
 
 ## Core Vision
 
-A developer-focused AI assistant that **learns your codebase, your patterns, and your domain over time**, building an ever-growing knowledge graph that makes it exponentially more useful the longer you work together. Unlike stateless AI coding assistants, **Sigma remembers, connects, and evolves**.
+A **multi-agent AI system** that autonomously works on any software project, learning from experiments, sharing knowledge across projects, and evolving its strategies over time. Unlike static code analysis tools, **Sigma experiments, learns, and improves continuously**.
 
 ```mermaid
 flowchart LR
-    subgraph Traditional["Traditional AI Tools ❌"]
-        T1[Stateless]
-        T2[Generic knowledge]
-        T3[No history]
-        T4[Reactive only]
+    subgraph Traditional["Traditional Tools ❌"]
+        T1[Static analysis]
+        T2[One-time fixes]
+        T3[No learning]
+        T4[Single project scope]
     end
     
     subgraph Sigma["SIGMA ✅"]
-        S1[Persistent memory]
-        S2[Learns YOUR patterns]
-        S3[Tracks decisions]
-        S4[Proactive suggestions]
+        S1[Dynamic experimentation]
+        S2[Continuous evolution]
+        S3[Cross-project learning]
+        S4[Self-improving agents]
     end
     
     Traditional -.->|Evolves to| Sigma
 ```
 
-## The Problem with Current AI Dev Tools
+## The Problem with Current Code Tools
 
-| Current Tools (Cursor/Copilot) | SIGMA (The Vision) |
-|-------------------------------|---------------------|
-| Stateless - forgets between sessions | Persistent memory - builds knowledge over time |
-| Generic coding knowledge | Learns YOUR codebase, patterns, architecture |
-| Can't track why decisions were made | Tracks decision history and rationale |
-| No understanding of project evolution | Understands how your project changed and why |
-| Reactive only | Proactive - suggests based on learned patterns |
-| No cross-project learning | Learns patterns across all your projects |
+| Current Tools (Linters/Copilot) | SIGMA (The Vision) |
+|--------------------------------|---------------------|
+| Static rules, no learning | Learns from experiments and outcomes |
+| Single project context | Shares patterns across all projects |
+| No autonomy | Can propose, commit, and create PRs autonomously |
+| Generic suggestions | Adapts to YOUR codebase patterns |
+| No experimentation | Constantly tests new approaches |
+| Isolated analysis | Multi-agent committee with specialized expertise |
 
-## Core Capabilities
+## Core Innovation: The Dreaming Gene
 
-### 1. Continuous Project Understanding
-```
-Developer: "Why did we decide to use Redis here instead of PostgreSQL?"
+Every worker in SIGMA has a **dual mode**:
+1. **Production Mode**: Execute their core responsibility efficiently
+2. **Dream Mode**: Experiment with novel approaches, learn from outcomes
 
-Sigma: "On March 15th, during the performance optimization sprint, 
-you chose Redis because:
-1. Session data needed <50ms access time (PostgreSQL was hitting 200ms)
-2. You discussed this with the team in Slack - Sarah mentioned caching
-3. The initial PostgreSQL implementation is in git history (commit abc123)
-4. Related decision: You also moved rate limiting to Redis that week
+This "gene" allows the system to continuously evolve and improve beyond its initial programming.
 
-Would you like me to review if this is still the best choice?"
-```
+## Multi-Agent Architecture
 
-### 2. Pattern Learning & Self-Improvement
-- Learns YOUR specific coding patterns
-- Tracks which suggestions you accept/reject
-- Suggests refactors based on your history
-- Improves entity extraction for your domain
+### Specialized Agent Workers
 
-### 3. Autonomous Research & Knowledge Synthesis
-- Scans commits/PRs for new libraries
-- Researches documentation and GitHub issues
-- Proactively notifies about security vulnerabilities
-- Builds knowledge graph entries automatically
+1. **Analysis Worker** (+ Experiment Engine)
+   - Parses code, computes metrics, detects issues
+   - Experiments with different analysis strategies
+   - Learns which approaches work best for different codebases
 
-### 4. Cross-Project Intelligence
-- Finds solutions from your other projects
-- Suggests patterns you've used successfully before
-- Identifies reusable code across repositories
-- Tracks how your patterns evolve over time
+2. **Dream Worker** (+ Pattern Evolution)
+   - Builds knowledge graph of code relationships
+   - Experiments with new relationship types
+   - Evolves graph structure based on utility
 
-### 5. Proactive Code Health Monitoring
-- Morning briefings with security alerts
-- Detects accumulating tech debt
-- Surfaces TODO patterns you've solved elsewhere
-- Monitors performance regressions
+3. **Recall Worker** (+ Context Learning)
+   - Provides semantic search across codebases
+   - Experiments with retrieval strategies
+   - Optimizes for relevance and speed
 
-### 6. Self-Evolving Architecture
-- Tracks which AI suggestions you accept
-- Identifies knowledge gaps and fills them
-- Creates domain-specific entity types over time
-- Optimizes queries based on your usage
+4. **Learning Worker** (+ Meta-Learning)
+   - Tracks outcomes of all decisions
+   - Learns which patterns succeed/fail
+   - Transfers knowledge across projects
 
-## Target Users
+5. **Think Worker** (+ Strategy Evolution)
+   - Coordinates specialized agents (architect, reviewer, tester, security, optimizer)
+   - Generates proposals via committee consensus
+   - Experiments with agent compositions and strategies
 
-### Individual Developers
-- 🧠 **Never forget context** - "Why did I do this 6 months ago?"
-- 🚀 **Reuse your patterns** - Your best solutions, auto-suggested
-- 📚 **Personal knowledge base** - All learning, searchable and connected
-- ⏱️ **Save context switching time** - Instant project recall
+### DreamerMetaAgent
 
-### Engineering Teams
-- 🤝 **Onboarding acceleration** - New devs learn from knowledge graph
-- 📖 **Living documentation** - Auto-maintained from code + decisions
-- 🔍 **Architectural clarity** - Understand why systems evolved
-- 🎯 **Consistency** - Team patterns propagate automatically
+Orchestrates learning across all workers:
+- Proposes experiments (15% of cycles)
+- Records outcomes (success/failure)
+- Promotes successful experiments to production
+- Shares learnings across projects
 
-### Engineering Leaders
-- 📊 **Tech debt visibility** - Identifies accumulating patterns
-- 🏗️ **Architecture insights** - Understand system evolution
-- 💡 **Knowledge retention** - Doesn't leave when developers leave
-- ⚡ **Velocity metrics** - Track pattern reuse and efficiency
+## Autonomy Levels
+
+**Level 1**: Analyze and propose (manual approval for everything)
+**Level 2**: Auto-commit to branches, manual PR approval  
+**Level 3**: Fully autonomous (creates and merges PRs based on confidence)
+
+Configurable via `.env` with confidence thresholds per level.
+
+## Cross-Project Intelligence
+
+SIGMA learns from ALL projects you work on:
+- Successful patterns transfer automatically
+- Failed approaches are avoided in new projects
+- Domain-specific knowledge accumulates (Django, React, etc.)
+- Similar projects benefit from each other's learnings
+
+## External Intelligence Integration
+
+- **Context7 MCP**: Documentation lookup
+- **Playwright MCP**: Web research capability
+- **GitHub API**: Repository operations
+- **Docker**: Isolated, safe execution environment
 
 ## Technical Foundation
 
-### Current Stack (Foundation)
-- ✅ PostgreSQL - Source of truth for relational data
-- ✅ Qdrant - Vector search for semantic queries
-- ✅ FastAPI - MCP server with SSE transport
-- ✅ Slack Integration - Decision tracking from discussions
-- ✅ Multi-cloud deployment (AWS ECS, DigitalOcean)
+### Current Stack
+- ✅ Neo4j + Graphiti - Code knowledge graph
+- ✅ PostgreSQL - Analysis data, experiments, cross-project patterns
+- ✅ Qdrant - Semantic code search
+- ✅ FastAPI - Web UI and API
+- ✅ Docker - Isolated execution environment
 
-### Planned Additions (Developer Intelligence)
-- 🔄 Graphiti + Neo4j - Temporal knowledge graph
-- 🔄 Git Integration - Commit/PR/Pattern tracking
-- 🔄 Jira/Linear Integration - Ticket to code connections
-- 📋 Pattern Learning Engine - Accept/reject tracking
-- 📋 Autonomous Research Scheduler - Nightly scans
-- 📋 Cross-Project Synthesizer - Multi-repo knowledge
-
-## Differentiation Matrix
-
-| Feature | GitHub Copilot | Cursor | **SIGMA** |
-|---------|---------------|--------|-----------|
-| Code completion | ✅ Excellent | ✅ Excellent | ⚠️ Via integration |
-| Codebase understanding | ❌ No memory | ⚠️ Session-based | ✅ Persistent, growing |
-| Cross-project learning | ❌ No | ❌ No | ✅ Yes |
-| Decision tracking | ❌ No | ❌ No | ✅ Temporal history |
-| Autonomous research | ❌ No | ❌ No | ✅ Continuous |
-| Pattern recognition | ⚠️ Generic | ⚠️ Generic | ✅ YOUR patterns |
-| Proactive suggestions | ❌ No | ❌ No | ✅ Yes |
-| Self-improvement | ❌ No | ❌ No | ✅ Evolves with usage |
+### Agent Infrastructure
+- 🔄 Worker thread system (5 background workers)
+- 🔄 DreamerMetaAgent (orchestrates experimentation)
+- 🔄 Multi-agent committee (6 specialized agents)
+- 🔄 Autonomy controller (3 levels)
+- 🔄 Cross-project learning system
 
 ## Success Criteria
 
 ### Technical Metrics
-- Memory operation latency < 2s (simple), < 5s (graph queries)
-- Pattern recognition accuracy > 85%
-- Cross-project query response < 3s
-- Autonomous research coverage > 90% of dependencies
+- Experiment success rate > 30%
+- Pattern transfer accuracy > 70%
+- Proposal acceptance rate > 60%
+- Test pass rate after auto-commits > 95%
 
 ### User Value Metrics
-- Time saved per developer per week
-- Successfully surfaced cross-project patterns
-- Correct decision recall rate
-- Morning briefing actionability score
+- Time saved per week through automation
+- Issues prevented before code review
+- Successful cross-project pattern transfers
+- System improvement rate over time
 
-### Adoption Metrics
-- Active developers using daily
-- Projects connected per user
-- Pattern suggestions accepted ratio
-- Knowledge graph growth rate
+### Evolution Metrics
+- New patterns discovered per month
+- Successful experiments promoted to production
+- Cross-project knowledge graph growth
+- Agent strategy refinements
 
-## Tagline Options
+## Differentiation Matrix
 
-- **"Your code's memory, evolving with every commit"**
-- "The AI assistant that grows with your codebase"
-- "Never forget, always learn, continuously improve"
-- "Your development knowledge, amplified"
+| Feature | GitHub Copilot | SonarQube | **SIGMA** |
+|---------|---------------|-----------|-----------|
+| Code suggestions | ✅ Excellent | ❌ No | ✅ Context-aware |
+| Static analysis | ❌ No | ✅ Excellent | ✅ Yes |
+| Learning | ❌ No | ❌ No | ✅ Continuous |
+| Experimentation | ❌ No | ❌ No | ✅ Built-in |
+| Cross-project | ❌ No | ❌ No | ✅ Yes |
+| Autonomy | ⚠️ Suggestions only | ❌ No | ✅ 3 levels |
+| Multi-agent | ❌ No | ❌ No | ✅ 6 specialists |
+
+## Use Cases
+
+### Individual Developers
+- 🧠 **Continuous learning** - System improves with every project
+- 🚀 **Pattern reuse** - Successful solutions auto-suggested in new projects
+- 🔬 **Safe experimentation** - System tests new approaches in isolation
+- ⏱️ **Autonomous fixes** - Common issues resolved automatically
+
+### Engineering Teams
+- 🤝 **Knowledge sharing** - Learnings propagate across team projects
+- 📖 **Living standards** - Best practices evolve from real outcomes
+- 🔍 **Proactive quality** - Issues caught before code review
+- 🎯 **Consistent patterns** - Team style emerges naturally
+
+### Open Source Projects
+- 📊 **Community patterns** - Learn from all contributors
+- 💡 **Automated suggestions** - Help new contributors align with project style
+- ⚡ **Issue prevention** - Common mistakes caught early
+- 🏗️ **Architecture guidance** - Maintain consistency as project grows
 
 ## Positioning Statement
 
-> SIGMA is a self-evolving developer intelligence system that builds a temporal knowledge graph of your codebase, patterns, and decisions. Unlike stateless AI coding tools, Sigma learns continuously, remembers contextually, and proactively helps you code better by understanding not just what you're building, but **how and why you build it**.
+> SIGMA is a self-evolving multi-agent system that works on any software project, learning from experiments, sharing knowledge across codebases, and autonomously proposing or executing improvements. Unlike static analysis tools, Sigma experiments continuously, learns from outcomes, and improves its strategies over time.
 
 ## Open Source Philosophy
 
 - Community-driven development
 - Self-hostable with Docker Compose
 - Multi-cloud deployment options
-- Extensible data source integrations
-- Transparent pattern learning algorithms
+- Extensible agent architecture
+- Transparent learning algorithms
+- Privacy-first (your code stays yours)
