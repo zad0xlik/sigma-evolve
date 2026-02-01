@@ -6,8 +6,10 @@ Experimental Mode: Novel proposal generation strategies, multi-agent reasoning
 """
 
 import json
+import os
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 import logging
 
@@ -15,6 +17,8 @@ from .base_worker import BaseWorker
 from ..agent_config import get_agent_config
 from ..models import Project, CodeSnapshot, Proposal
 from ..database import get_db
+from ..utils.categorization import get_openai_client
+from ..utils.graphiti import get_graphiti_client_sync, search_decisions
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +26,9 @@ logger = logging.getLogger(__name__)
 class DreamWorker(BaseWorker):
     """Generates creative proposals for code improvements."""
     
-    def __init__(self, db_session, dreamer):
-        super().__init__(db_session, dreamer)
+    def __init__(self, db_session, dreamer, project_id=None):
+        super().__init__(db_session, dreamer, project_id)
+        self.project_id = project_id
         self.config = get_agent_config()
         self.current_strategy = "single_agent_proposals"
     
@@ -128,9 +133,9 @@ class DreamWorker(BaseWorker):
             # Record outcome
             self.dreamer.record_outcome(
                 experiment_id=exp_id,
-                success=improvement > 0,
-                improvement=improvement,
-                details={
+                outcome={
+                    "success": improvement > 0,
+                    "improvement": improvement,
                     "result_metrics": result,
                     "baseline_metrics": context,
                     "elapsed_time": elapsed
@@ -193,62 +198,274 @@ class DreamWorker(BaseWorker):
             if proposal:
                 proposals.append(proposal)
         
+        # Broadcast proposal quality metrics
+        if proposals:
+            avg_confidence = sum(p['confidence'] for p in proposals) / len(proposals)
+            
+            self._broadcast_knowledge(
+                knowledge_type='proposal_quality',
+                content={
+                    'proposal_count': len(proposals),
+                    'avg_confidence': avg_confidence,
+                    'issue_count': snapshot.issues_found,
+                    'change_types': list(set(p['changes']['change_type'] for p in proposals))
+                },
+                urgency='low'
+            )
+        
         return proposals
     
     def _generate_error_fix_proposal(self, issues: List[Dict], snapshot: CodeSnapshot) -> Optional[Dict]:
-        """Generate proposal to fix error-level issues"""
-        # In a real implementation, this would call an LLM
-        # For now, create a structured proposal
-        
-        issue_summary = "\n".join([
-            f"- {issue['file']}:{issue['line']}: {issue['message']}"
-            for issue in issues[:5]  # Limit to first 5
-        ])
-        
-        return {
-            'title': f"Fix {len(issues)} Critical Error(s)",
-            'description': f"Resolve the following critical errors:\n{issue_summary}",
-            'agents': {
+        """Generate proposal to fix error-level issues using LLM with Graphiti knowledge"""
+        try:
+            # Get project details
+            project = self.db.query(Project).filter(Project.project_id == snapshot.project_id).first()
+            if not project:
+                logger.error(f"Project {snapshot.project_id} not found")
+                return None
+            
+            # Limit to top 5 most critical issues
+            top_issues = issues[:5]
+            
+            # Read affected file contents
+            file_contents = self._read_affected_files(project.workspace_path, top_issues)
+            
+            # Query Graphiti for successful fix patterns
+            historical_context = self._query_historical_fix_patterns(top_issues)
+            
+            # Build LLM prompt with historical context
+            system_prompt = """You are an expert software engineer specialized in fixing code issues.
+Your task is to analyze code issues and generate specific code fixes, learning from historical patterns.
+
+Respond with a JSON object containing:
+{
+  "title": "Brief title for the fix",
+  "description": "Detailed explanation of what will be fixed and why",
+  "confidence": 0.0-1.0,
+  "changes": [
+    {
+      "file": "path/to/file.py",
+      "original": "code to be replaced",
+      "fixed": "corrected code",
+      "explanation": "why this fixes the issue"
+    }
+  ],
+  "testing_strategy": "How to verify the fix works",
+  "historical_lessons": "What was learned from similar past fixes"
+}"""
+            
+            user_prompt = f"""Project: {project.repo_url}
+Language: {project.language}
+Framework: {project.framework or 'N/A'}
+
+Critical Issues to Fix:
+"""
+            for issue in top_issues:
+                user_prompt += f"\n{issue['file']}:{issue['line']} - {issue['message']}\n"
+                if issue['file'] in file_contents:
+                    lines = file_contents[issue['file']].split('\n')
+                    start = max(0, issue['line'] - 5)
+                    end = min(len(lines), issue['line'] + 5)
+                    context = '\n'.join(f"{i+1}: {line}" for i, line in enumerate(lines[start:end], start=start))
+                    user_prompt += f"Context:\n```\n{context}\n```\n"
+            
+            # Add historical knowledge if available
+            if historical_context.get('successful_patterns'):
+                user_prompt += "\n\nHistorical Context from Similar Fixes:\n"
+                for pattern in historical_context['successful_patterns'][:3]:
+                    user_prompt += f"- {pattern}\n"
+            
+            if historical_context.get('pitfalls'):
+                user_prompt += "\n\nCommon Pitfalls to Avoid:\n"
+                for pitfall in historical_context['pitfalls'][:3]:
+                    user_prompt += f"- {pitfall}\n"
+            
+            user_prompt += "\n\nGenerate specific code fixes for these issues, considering historical patterns."
+            
+            # Call LLM
+            llm = get_openai_client()
+            model = os.getenv("MODEL", "gpt-4o-mini")
+            
+            response = llm.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2500
+            )
+            
+            # Parse response
+            content = response.choices[0].message.content
+            
+            # Extract JSON from markdown if present
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+            
+            result = json.loads(content)
+            
+            # Adjust confidence based on historical success rate
+            historical_success_rate = historical_context.get('success_rate', 0.5)
+            base_confidence = float(result.get('confidence', 0.85))
+            
+            # Increase confidence if historical success is high, decrease if low
+            if historical_success_rate > 0.7:
+                adjusted_confidence = min(base_confidence + 0.1, 0.95)
+            elif historical_success_rate < 0.3:
+                adjusted_confidence = max(base_confidence - 0.1, 0.5)
+            else:
+                adjusted_confidence = base_confidence
+            
+            # Build committee scores
+            agents = {
                 'architect': 0.85,
                 'reviewer': 0.80,
                 'tester': 0.90,
                 'security': 0.75,
                 'optimizer': 0.70
-            },
-            'changes': {
-                'files_affected': list(set(i['file'] for i in issues)),
-                'change_type': 'bug_fix',
-                'estimated_lines': len(issues) * 3  # Rough estimate
-            },
-            'confidence': 0.85,
-            'critic_score': 0.80
-        }
+            }
+            
+            return {
+                'title': result.get('title', f"Fix {len(issues)} Critical Error(s)"),
+                'description': result.get('description', ''),
+                'agents': agents,
+                'changes': {
+                    'files_affected': list(set(i['file'] for i in top_issues)),
+                    'change_type': 'bug_fix',
+                    'code_changes': result.get('changes', []),
+                    'testing_strategy': result.get('testing_strategy', ''),
+                    'historical_lessons': result.get('historical_lessons', '')
+                },
+                'confidence': adjusted_confidence,
+                'critic_score': 0.80
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to generate LLM proposal for errors: {e}")
+            # Fall back to simple placeholder
+            issue_summary = "\n".join([
+                f"- {issue['file']}:{issue['line']}: {issue['message']}"
+                for issue in issues[:5]
+            ])
+            return {
+                'title': f"Fix {len(issues)} Critical Error(s)",
+                'description': f"Resolve the following critical errors:\n{issue_summary}",
+                'agents': {'architect': 0.85, 'reviewer': 0.80, 'tester': 0.90, 'security': 0.75, 'optimizer': 0.70},
+                'changes': {'files_affected': list(set(i['file'] for i in issues)), 'change_type': 'bug_fix'},
+                'confidence': 0.75,
+                'critic_score': 0.70
+            }
     
     def _generate_warning_fix_proposal(self, issues: List[Dict], snapshot: CodeSnapshot) -> Optional[Dict]:
-        """Generate proposal to fix warning-level issues"""
-        issue_summary = "\n".join([
-            f"- {issue['file']}:{issue['line']}: {issue['message']}"
-            for issue in issues[:5]
-        ])
-        
-        return {
-            'title': f"Address {len(issues)} Code Warning(s)",
-            'description': f"Improve code quality by addressing:\n{issue_summary}",
-            'agents': {
+        """Generate proposal to fix warning-level issues using LLM"""
+        try:
+            # Get project details
+            project = self.db.query(Project).filter(Project.project_id == snapshot.project_id).first()
+            if not project:
+                logger.error(f"Project {snapshot.project_id} not found")
+                return None
+            
+            # Limit to reasonable batch size
+            top_issues = issues[:10]
+            
+            # Read affected file contents
+            file_contents = self._read_affected_files(project.workspace_path, top_issues)
+            
+            # Build LLM prompt
+            system_prompt = """You are an expert software engineer specialized in code quality improvements.
+Your task is to analyze code warnings and suggest improvements.
+
+Respond with a JSON object containing:
+{
+  "title": "Brief title for the improvements",
+  "description": "Detailed explanation of what will be improved",
+  "confidence": 0.0-1.0,
+  "changes": [
+    {
+      "file": "path/to/file.py",
+      "original": "code to be improved",
+      "improved": "better code",
+      "explanation": "why this is better"
+    }
+  ],
+  "testing_strategy": "How to verify improvements don't break anything"
+}"""
+            
+            user_prompt = f"""Project: {project.repo_url}
+Language: {project.language}
+Framework: {project.framework or 'N/A'}
+
+Code Quality Warnings to Address:
+"""
+            for issue in top_issues:
+                user_prompt += f"\n{issue['file']}:{issue['line']} - {issue['message']}\n"
+                if issue['file'] in file_contents:
+                    lines = file_contents[issue['file']].split('\n')
+                    start = max(0, issue['line'] - 3)
+                    end = min(len(lines), issue['line'] + 3)
+                    context = '\n'.join(f"{i+1}: {line}" for i, line in enumerate(lines[start:end], start=start))
+                    user_prompt += f"Context:\n```\n{context}\n```\n"
+            
+            user_prompt += "\nGenerate code improvements for these warnings."
+            
+            # Call LLM
+            llm = get_openai_client()
+            model = os.getenv("MODEL", "gpt-4o-mini")
+            
+            response = llm.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.4,
+                max_tokens=2000
+            )
+            
+            content = response.choices[0].message.content
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+            
+            result = json.loads(content)
+            
+            agents = {
                 'architect': 0.70,
                 'reviewer': 0.85,
                 'tester': 0.75,
                 'security': 0.65,
                 'optimizer': 0.80
-            },
-            'changes': {
-                'files_affected': list(set(i['file'] for i in issues)),
-                'change_type': 'code_quality',
-                'estimated_lines': len(issues) * 2
-            },
-            'confidence': 0.75,
-            'critic_score': 0.70
-        }
+            }
+            
+            return {
+                'title': result.get('title', f"Address {len(issues)} Code Warning(s)"),
+                'description': result.get('description', ''),
+                'agents': agents,
+                'changes': {
+                    'files_affected': list(set(i['file'] for i in top_issues)),
+                    'change_type': 'code_quality',
+                    'code_changes': result.get('changes', []),
+                    'testing_strategy': result.get('testing_strategy', '')
+                },
+                'confidence': float(result.get('confidence', 0.75)),
+                'critic_score': 0.70
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to generate LLM proposal for warnings: {e}")
+            issue_summary = "\n".join([f"- {issue['file']}:{issue['line']}: {issue['message']}" for issue in issues[:5]])
+            return {
+                'title': f"Address {len(issues)} Code Warning(s)",
+                'description': f"Improve code quality by addressing:\n{issue_summary}",
+                'agents': {'architect': 0.70, 'reviewer': 0.85, 'tester': 0.75, 'security': 0.65, 'optimizer': 0.80},
+                'changes': {'files_affected': list(set(i['file'] for i in issues)), 'change_type': 'code_quality'},
+                'confidence': 0.70,
+                'critic_score': 0.65
+            }
     
     def _generate_refactoring_proposal(self, snapshot: CodeSnapshot) -> Optional[Dict]:
         """Generate proposal to refactor complex code"""
@@ -277,13 +494,13 @@ class DreamWorker(BaseWorker):
         # Calculate weighted confidence from agent committee
         agents = proposal_data['agents']
         committee_config = self.config.committee
-        
+
         weighted_confidence = (
-            agents['architect'] * committee_config.architect_weight +
-            agents['reviewer'] * committee_config.reviewer_weight +
-            agents['tester'] * committee_config.tester_weight +
-            agents['security'] * committee_config.security_weight +
-            agents['optimizer'] * committee_config.optimizer_weight
+            agents['architect'] * committee_config.weights['architect'] +
+            agents['reviewer'] * committee_config.weights['reviewer'] +
+            agents['tester'] * committee_config.weights['tester'] +
+            agents['security'] * committee_config.weights['security'] +
+            agents['optimizer'] * committee_config.weights['optimizer']
         )
         
         proposal = Proposal(
@@ -302,6 +519,10 @@ class DreamWorker(BaseWorker):
         self.db.commit()
         
         logger.info(f"Stored proposal: '{proposal.title}' (confidence={weighted_confidence:.2f})")
+    
+    def _get_experiment_context(self) -> Dict:
+        """Get context for experiment proposal"""
+        return self._get_current_performance()
     
     def _get_current_performance(self) -> Dict:
         """Get recent performance metrics for experiment baseline"""
@@ -378,8 +599,132 @@ class DreamWorker(BaseWorker):
     def _check_for_promoted_strategies(self):
         """Check if any experiments have been promoted to production"""
         promoted = self.dreamer.get_promoted_experiments("dream")
-        
-        if promoted and promoted[0].experiment_name != self.current_strategy:
-            logger.info(f"🎉 Adopting promoted strategy: {promoted[0].experiment_name}")
-            self.current_strategy = promoted[0].experiment_name
+
+        if promoted and promoted[0]["experiment_name"] != self.current_strategy:
+            logger.info(f"🎉 Adopting promoted strategy: {promoted[0]['experiment_name']}")
+            self.current_strategy = promoted[0]["experiment_name"]
             # TODO: Actually implement strategy switching
+    
+    def _read_affected_files(self, workspace_path: str, issues: List[Dict]) -> Dict[str, str]:
+        """
+        Read the contents of files affected by issues.
+        
+        Args:
+            workspace_path: Path to project workspace
+            issues: List of issues with 'file' keys
+        
+        Returns:
+            Dict mapping file paths to their contents
+        """
+        file_contents = {}
+        unique_files = set(issue['file'] for issue in issues)
+        
+        for file_path in unique_files:
+            try:
+                full_path = Path(workspace_path) / file_path
+                if full_path.exists() and full_path.is_file():
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        file_contents[file_path] = f.read()
+                    logger.debug(f"Read file: {file_path}")
+                else:
+                    logger.warning(f"File not found: {full_path}")
+            except Exception as e:
+                logger.error(f"Failed to read {file_path}: {e}")
+        
+        return file_contents
+    
+    def _query_historical_fix_patterns(self, issues: List[Dict]) -> Dict:
+        """
+        Query Graphiti for successful fix patterns and historical context
+        
+        Returns:
+            Dict with successful patterns, pitfalls, and success rate
+        """
+        try:
+            client = get_graphiti_client_sync()
+            
+            if not client:
+                logger.debug("Graphiti client not available, skipping historical patterns query")
+                return {
+                    'successful_patterns': [],
+                    'pitfalls': [],
+                    'success_rate': 0.5
+                }
+            
+            # Build search queries based on issue types
+            search_queries = []
+            for issue in issues[:3]:  # Limit to top 3 issues
+                message = issue.get('message', '').lower()
+                
+                if 'syntax error' in message:
+                    search_queries.append('syntax error fix pattern')
+                elif 'type hint' in message:
+                    search_queries.append('type hint addition pattern')
+                elif 'mutable default' in message:
+                    search_queries.append('mutable default argument pattern')
+                elif 'bare except' in message:
+                    search_queries.append('bare except clause pattern')
+            
+            if not search_queries:
+                # Generic search for bug fixes
+                search_queries.append('bug fix pattern')
+            
+            import asyncio
+            
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            # Search for patterns
+            all_results = []
+            for query in search_queries:
+                try:
+                    results = loop.run_until_complete(
+                        search_decisions(
+                            query=query,
+                            limit=5
+                        )
+                    )
+                    all_results.extend(results)
+                except Exception as e:
+                    logger.debug(f"Query failed for '{query}': {e}")
+            
+            # Analyze results
+            successful_patterns = []
+            pitfalls = []
+            success_count = 0
+            total_count = len(all_results)
+            
+            for result in all_results:
+                fact = result.get('fact', '').lower()
+                
+                # Classify as success or pitfall
+                if 'success' in fact or 'worked' in fact or 'effective' in fact:
+                    successful_patterns.append(result.get('fact', ''))
+                    success_count += 1
+                elif 'failed' in fact or 'error' in fact or 'bug' in fact:
+                    pitfalls.append(result.get('fact', ''))
+            
+            success_rate = success_count / total_count if total_count > 0 else 0.5
+            
+            logger.info(
+                f"Historical fix pattern query complete: "
+                f"found {total_count} patterns, "
+                f"success_rate={success_rate:.1%}"
+            )
+            
+            return {
+                'successful_patterns': successful_patterns,
+                'pitfalls': pitfalls,
+                'success_rate': success_rate
+            }
+            
+        except Exception as e:
+            logger.error(f"Error querying historical fix patterns: {e}")
+            return {
+                'successful_patterns': [],
+                'pitfalls': [],
+                'success_rate': 0.5
+            }

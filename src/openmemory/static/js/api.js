@@ -82,5 +82,20 @@ export const api = {
         });
         if (!response.ok) throw new Error('Failed to register project');
         return response.json();
+    },
+
+    async deleteProject(projectId) {
+        const response = await fetch(`${API_BASE}/api/agents/projects/${projectId}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) throw new Error('Failed to delete project');
+        return response.json();
+    },
+
+    // Graph visualization
+    async getProjectPatternGraph() {
+        const response = await fetch(`${API_BASE}/api/agents/graph/project-patterns`);
+        if (!response.ok) throw new Error('Failed to fetch graph data');
+        return response.json();
     }
 };

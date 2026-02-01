@@ -2,7 +2,7 @@ import logging
 import os
 from typing import List, Optional
 
-from app.utils.prompts import MEMORY_CATEGORIZATION_PROMPT
+from .prompts import MEMORY_CATEGORIZATION_PROMPT
 from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel

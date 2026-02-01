@@ -19,6 +19,7 @@ from ..models import (
 )
 from ..database import get_db
 from ..utils.cross_project import CrossProjectLearningSystem
+from ..utils.graphiti import get_graphiti_client_sync, get_decision_history, search_decisions
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +27,9 @@ logger = logging.getLogger(__name__)
 class LearningWorker(BaseWorker):
     """Extracts and stores patterns from successful and failed proposals."""
     
-    def __init__(self, db_session, dreamer):
-        super().__init__(db_session, dreamer)
+    def __init__(self, db_session, dreamer, project_id=None):
+        super().__init__(db_session, dreamer, project_id)
+        self.project_id = project_id
         self.config = get_agent_config()
         self.current_strategy = "success_pattern_extraction"
         self.xp_system = CrossProjectLearningSystem(db_session)
@@ -174,11 +176,26 @@ class LearningWorker(BaseWorker):
         # Parse proposal details
         changes = json.loads(proposal.changes_json) if proposal.changes_json else {}
         change_type = changes.get('change_type', 'unknown')
+        description = changes.get('description', '')
         
         # Get project context
         project = self.db.query(Project).get(proposal.project_id)
         if not project:
             return False
+        
+        # Query Graphiti for similar patterns in knowledge graph
+        graphiti_context = self._query_pattern_history(description, change_type, project.project_id)
+        
+        # Check if this pattern already exists in knowledge graph
+        if graphiti_context.get('similar_patterns', []):
+            logger.info(f"Found {len(graphiti_context['similar_patterns'])} similar patterns in knowledge graph")
+            
+            # Calculate quality score based on historical success
+            historical_quality = self._assess_pattern_quality(graphiti_context)
+            
+            if historical_quality < 0.3:
+                logger.warning(f"Pattern has poor historical quality ({historical_quality:.2f}), skipping")
+                return False
         
         # Use CrossProjectLearningSystem to extract pattern
         pattern_name = self._generate_pattern_name(proposal, change_type)
@@ -191,6 +208,16 @@ class LearningWorker(BaseWorker):
         )
         
         if pattern:
+            # Enhance pattern confidence with Graphiti knowledge
+            enhanced_confidence = self._enhance_pattern_confidence(
+                pattern.confidence,
+                graphiti_context
+            )
+            
+            if enhanced_confidence != pattern.confidence:
+                pattern.confidence = enhanced_confidence
+                logger.info(f"Enhanced pattern confidence to {enhanced_confidence:.2f}")
+            
             logger.info(f"✅ Extracted pattern: {pattern.pattern_name} "
                        f"(confidence: {pattern.confidence:.2f})")
             
@@ -200,9 +227,257 @@ class LearningWorker(BaseWorker):
                 success=success,
             )
             
+            # Store pattern in Graphiti for future reference
+            self._store_pattern_in_graphiti(pattern, description, change_type, project)
+            
+            # Broadcast learned pattern for knowledge exchange
+            self._broadcast_knowledge(
+                knowledge_type='learned_pattern',
+                content={
+                    'pattern_id': pattern.pattern_id,
+                    'pattern_name': pattern.pattern_name,
+                    'pattern_type': pattern.pattern_type,
+                    'confidence': pattern.confidence,
+                    'success_rate': pattern.success_count / max(pattern.success_count + pattern.failure_count, 1)
+                },
+                urgency='low'
+            )
+            
+            # If pattern confidence increased significantly, broadcast evolution
+            if enhanced_confidence > pattern.confidence + 0.1:
+                self._broadcast_knowledge(
+                    knowledge_type='pattern_evolution',
+                    content={
+                        'pattern_id': pattern.pattern_id,
+                        'improvement': enhanced_confidence - pattern.confidence,
+                        'source': 'historical_data_enhancement'
+                    },
+                    urgency='low'
+                )
+            
             return True
         
         return False
+    
+    def _query_pattern_history(self, description: str, change_type: str, project_id: int) -> Dict:
+        """
+        Query Graphiti knowledge graph for similar patterns and historical context
+        
+        Returns:
+            Dict with similar patterns, success rates, and relevant facts
+        """
+        try:
+            client = get_graphiti_client_sync()
+            
+            if not client:
+                logger.debug("Graphiti client not available, skipping pattern history query")
+                return {
+                    'similar_patterns': [],
+                    'success_rate': 0.0,
+                    'related_facts': [],
+                    'query_status': 'unavailable'
+                }
+            
+            # Build search query
+            search_query = f"pattern for {change_type} in {description[:100]}"
+            
+            import asyncio
+            
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            # Search for similar patterns
+            similar_patterns = loop.run_until_complete(
+                search_decisions(
+                    query=search_query,
+                    limit=15
+                )
+            )
+            
+            # Analyze patterns
+            success_count = 0
+            total_count = len(similar_patterns)
+            related_facts = []
+            
+            for pattern in similar_patterns:
+                fact = pattern.get('fact', '').lower()
+                
+                # Check for success indicators
+                if 'success' in fact or 'worked' in fact or 'effective' in fact:
+                    success_count += 1
+                
+                # Extract related facts
+                related_facts.append({
+                    'fact': pattern.get('fact', ''),
+                    'score': pattern.get('score', 1.0),
+                    'type': self._classify_pattern_fact(fact)
+                })
+            
+            success_rate = success_count / total_count if total_count > 0 else 0.0
+            
+            logger.info(
+                f"Pattern history query complete: "
+                f"found {total_count} similar patterns, "
+                f"success_rate={success_rate:.1%}"
+            )
+            
+            return {
+                'similar_patterns': similar_patterns,
+                'success_rate': success_rate,
+                'related_facts': related_facts,
+                'query_status': 'success'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error querying pattern history: {e}")
+            return {
+                'similar_patterns': [],
+                'success_rate': 0.0,
+                'related_facts': [],
+                'query_status': 'error',
+                'error': str(e)
+            }
+    
+    def _assess_pattern_quality(self, graphiti_context: Dict) -> float:
+        """
+        Assess pattern quality based on historical data from Graphiti
+        
+        Factors:
+        - Historical success rate
+        - Number of similar patterns (more is better for established patterns)
+        - Consistency of outcomes
+        - Relevance to current context
+        """
+        success_rate = graphiti_context.get('success_rate', 0.0)
+        similar_count = len(graphiti_context.get('similar_patterns', []))
+        related_facts = graphiti_context.get('related_facts', [])
+        
+        # Base quality on success rate
+        quality = success_rate
+        
+        # Bonus for well-established patterns
+        if similar_count >= 5:
+            quality += 0.1
+        elif similar_count >= 10:
+            quality += 0.2
+        
+        # Penalty for controversial patterns (mixed outcomes)
+        if 0.3 < success_rate < 0.7:
+            quality -= 0.15
+        
+        # Bonus for patterns with rich contextual facts
+        if len(related_facts) >= 3:
+            quality += 0.05
+        
+        # Ensure within bounds
+        quality = max(0.0, min(1.0, quality))
+        
+        logger.debug(f"Pattern quality assessment: {quality:.2f} "
+                    f"(success_rate: {success_rate:.2f}, similar: {similar_count})")
+        
+        return quality
+    
+    def _enhance_pattern_confidence(self, base_confidence: float, graphiti_context: Dict) -> float:
+        """
+        Enhance pattern confidence using Graphiti knowledge
+        
+        Adjustments:
+        - High historical success rate → increase confidence
+        - Multiple similar patterns → increase confidence (well-established)
+        - Low success rate → decrease confidence (risky pattern)
+        - No historical data → slight decrease (unknown pattern)
+        """
+        success_rate = graphiti_context.get('success_rate', 0.0)
+        similar_count = len(graphiti_context.get('similar_patterns', []))
+        query_status = graphiti_context.get('query_status', 'unknown')
+        
+        adjustment = 0.0
+        
+        # Adjust based on historical success
+        if success_rate > 0.7:
+            adjustment += 0.08
+        elif success_rate > 0.5:
+            adjustment += 0.04
+        elif success_rate < 0.3:
+            adjustment -= 0.10
+        elif success_rate < 0.5:
+            adjustment -= 0.05
+        
+        # Adjust based on pattern establishment
+        if similar_count >= 10:
+            adjustment += 0.05
+        elif similar_count >= 5:
+            adjustment += 0.02
+        elif similar_count == 0:
+            adjustment -= 0.03  # Unknown pattern
+        
+        # Penalty for query failures
+        if query_status == 'error':
+            adjustment -= 0.05
+        
+        # Apply adjustment
+        enhanced_confidence = base_confidence + adjustment
+        enhanced_confidence = max(0.0, min(1.0, enhanced_confidence))
+        
+        if adjustment != 0.0:
+            logger.info(
+                f"Pattern confidence adjusted: {base_confidence:.3f} → {enhanced_confidence:.3f} "
+                f"(success_rate: {success_rate:.2f}, similar: {similar_count}, adjustment: {adjustment:+.3f})"
+            )
+        
+        return enhanced_confidence
+    
+    def _store_pattern_in_graphiti(self, pattern, description: str, change_type: str, project: Project):
+        """
+        Store learned pattern in Graphiti knowledge graph for future reference
+        """
+        try:
+            client = get_graphiti_client_sync()
+            
+            if not client:
+                logger.debug("Graphiti client not available, skipping pattern storage")
+                return
+            
+            # Create fact text about the pattern
+            fact_text = (
+                f"Pattern: {pattern.pattern_name} "
+                f"(type: {change_type}, "
+                f"project: {project.project_name}, "
+                f"confidence: {pattern.confidence:.2f})"
+            )
+            
+            # Add related context
+            if description:
+                fact_text += f" - {description[:200]}"
+            
+            # Store in Graphiti (this would require a store_facts function)
+            # For now, just log that we would store it
+            logger.debug(f"Would store pattern in Graphiti: {fact_text[:100]}...")
+            
+        except Exception as e:
+            logger.error(f"Error storing pattern in Graphiti: {e}")
+    
+    def _classify_pattern_fact(self, fact_text: str) -> str:
+        """
+        Classify a fact from Graphiti into a pattern type
+        """
+        fact_lower = fact_text.lower()
+        
+        if any(keyword in fact_lower for keyword in ['success', 'worked', 'effective', 'improved']):
+            return 'success_pattern'
+        elif any(keyword in fact_lower for keyword in ['failed', 'error', 'bug', 'broke']):
+            return 'failure_pattern'
+        elif any(keyword in fact_lower for keyword in ['risk', 'caution', 'warning']):
+            return 'risk_pattern'
+        elif any(keyword in fact_lower for keyword in ['dependency', 'library', 'package']):
+            return 'dependency_pattern'
+        elif any(keyword in fact_lower for keyword in ['performance', 'speed', 'optimization']):
+            return 'performance_pattern'
+        else:
+            return 'general_pattern'
     
     def _evaluate_proposal_success(self, proposal: Proposal) -> bool:
         """
@@ -346,6 +621,9 @@ class LearningWorker(BaseWorker):
         if opportunities > 0:
             logger.info(f"Identified {opportunities} cross-project learning opportunities")
     
+    def _get_experiment_context(self) -> Dict:
+        """Get context for experiment proposal"""
+        return self._get_current_performance()
     
     def _get_current_performance(self) -> Dict:
         """Get recent performance metrics for experiment baseline"""
@@ -425,7 +703,7 @@ class LearningWorker(BaseWorker):
         """Check if any experiments have been promoted to production"""
         promoted = self.dreamer.get_promoted_experiments("learning")
         
-        if promoted and promoted[0].experiment_name != self.current_strategy:
-            logger.info(f"🎉 Adopting promoted strategy: {promoted[0].experiment_name}")
-            self.current_strategy = promoted[0].experiment_name
+        if promoted and promoted[0]["experiment_name"] != self.current_strategy:
+            logger.info(f"🎉 Adopting promoted strategy: {promoted[0]['experiment_name']}")
+            self.current_strategy = promoted[0]["experiment_name"]
             # TODO: Actually implement strategy switching

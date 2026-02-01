@@ -9,12 +9,15 @@ This is the core innovation of SIGMA - enabling autonomous improvement.
 import json
 import logging
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+from sqlalchemy import text
+from sqlalchemy.sql import func
 
 from ..agent_config import get_agent_config
 from ..database import get_db
-from ..utils.categorization import get_llm_client
+from ..utils.categorization import get_openai_client
 
 
 logger = logging.getLogger("sigma.dreamer")
@@ -22,7 +25,7 @@ logger = logging.getLogger("sigma.dreamer")
 
 def utc_now() -> str:
     """Get current UTC timestamp as ISO string"""
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 class DreamerMetaAgent:
@@ -57,38 +60,38 @@ class DreamerMetaAgent:
             db = next(get_db())
             
             # Load recent successes
-            success_rows = db.execute("""
+            success_rows = db.execute(text("""
                 SELECT * FROM experiments 
-                WHERE success = 1 
+                WHERE success = TRUE 
                 ORDER BY completed_at DESC 
                 LIMIT 10
-            """).fetchall()
+            """)).fetchall()
             
             self.successful_patterns = [
                 {
-                    "worker_name": row["worker_name"],
-                    "experiment_name": row["experiment_name"],
-                    "approach": row["approach"],
-                    "improvement": row["improvement"],
-                    "completed_at": row["completed_at"],
+                    "worker_name": row[1],  # worker_name column
+                    "experiment_name": row[2],  # experiment_name column
+                    "approach": row[4],  # approach column
+                    "improvement": row[11],  # improvement column
+                    "completed_at": row[10],  # completed_at column
                 }
                 for row in success_rows
             ]
             
             # Load recent failures
-            failure_rows = db.execute("""
+            failure_rows = db.execute(text("""
                 SELECT * FROM experiments 
-                WHERE success = 0 
+                WHERE success = FALSE 
                 ORDER BY completed_at DESC 
                 LIMIT 10
-            """).fetchall()
+            """)).fetchall()
             
             self.failed_patterns = [
                 {
-                    "worker_name": row["worker_name"],
-                    "experiment_name": row["experiment_name"],
-                    "approach": row["approach"],
-                    "completed_at": row["completed_at"],
+                    "worker_name": row[1],  # worker_name column
+                    "experiment_name": row[2],  # experiment_name column
+                    "approach": row[4],  # approach column
+                    "completed_at": row[10],  # completed_at column
                 }
                 for row in failure_rows
             ]
@@ -118,7 +121,7 @@ class DreamerMetaAgent:
             Experiment specification or None if generation fails
         """
         try:
-            llm = get_llm_client()
+            llm = get_openai_client()
             
             # Build prompt for experiment generation
             system = f"""You are the Dreamer for the {worker_name} worker in SIGMA - a self-evolving agent system.
@@ -204,42 +207,74 @@ Propose an experiment that could improve {worker_name}'s performance. Be creativ
     def record_experiment_start(
         self,
         worker_name: str,
-        experiment: Dict[str, Any],
+        experiment_name: Optional[str] = None,
+        experiment: Optional[Dict[str, Any]] = None,
+        hypothesis: Optional[str] = None,
+        approach: Optional[str] = None,
         project_id: Optional[int] = None
     ) -> int:
         """
         Record experiment start in database.
         
+        Supports both dict-based and keyword argument styles for backwards compatibility.
+        
         Returns:
             experiment_id
         """
         try:
+            # Handle both calling styles
+            if experiment:
+                # Dict-based style
+                exp_name = experiment.get("experiment_name", experiment_name or "Unknown")
+                exp_hypothesis = experiment.get("hypothesis", hypothesis)
+                exp_approach = experiment.get("approach", approach)
+                exp_metrics = experiment.get("metrics", [])
+                exp_risk_level = experiment.get("risk_level", "medium")
+                exp_rollback_plan = experiment.get("rollback_plan")
+            else:
+                # Keyword argument style
+                exp_name = experiment_name or "Unknown"
+                exp_hypothesis = hypothesis
+                exp_approach = approach
+                exp_metrics = []
+                exp_risk_level = "medium"
+                exp_rollback_plan = None
+            
+            # Serialize list/dict fields to JSON strings for SQLite compatibility
+            if isinstance(exp_approach, (list, dict)):
+                exp_approach = json.dumps(exp_approach)
+            if isinstance(exp_metrics, (list, dict)):
+                exp_metrics = json.dumps(exp_metrics)
+            elif not exp_metrics:
+                exp_metrics = "[]"
+            
             db = next(get_db())
             
-            cursor = db.execute("""
+            cursor = db.execute(text("""
                 INSERT INTO experiments (
-                    project_id, worker_name, experiment_name, ts, 
+                    project_id, worker_name, experiment_name, 
                     hypothesis, approach, metrics, risk_level, 
                     rollback_plan, status, started_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                project_id,
-                worker_name,
-                experiment["experiment_name"],
-                utc_now(),
-                experiment.get("hypothesis"),
-                experiment.get("approach"),
-                json.dumps(experiment.get("metrics", [])),
-                experiment.get("risk_level", "medium"),
-                experiment.get("rollback_plan"),
-                "running",
-                utc_now()
-            ))
+                ) VALUES (:project_id, :worker_name, :experiment_name, 
+                         :hypothesis, :approach, :metrics, :risk_level, 
+                         :rollback_plan, :status, :started_at)
+            """), {
+                "project_id": project_id,
+                "worker_name": worker_name,
+                "experiment_name": exp_name,
+                "hypothesis": exp_hypothesis,
+                "approach": exp_approach,
+                "metrics": exp_metrics,
+                "risk_level": exp_risk_level,
+                "rollback_plan": exp_rollback_plan,
+                "status": "running",
+                "started_at": utc_now()
+            })
             
             experiment_id = cursor.lastrowid
             db.commit()
             
-            logger.info(f"Started experiment {experiment_id}: {experiment['experiment_name']}")
+            logger.info(f"Started experiment {experiment_id}: {exp_name}")
             return experiment_id
             
         except Exception as e:
@@ -265,35 +300,35 @@ Propose an experiment that could improve {worker_name}'s performance. Be creativ
             improvement = float(outcome.get("improvement", 0.0))
             
             # Update experiment record
-            db.execute("""
+            db.execute(text("""
                 UPDATE experiments 
-                SET status = ?, 
-                    completed_at = ?, 
-                    outcome_json = ?, 
-                    success = ?, 
-                    improvement = ?
-                WHERE experiment_id = ?
-            """, (
-                "completed",
-                utc_now(),
-                json.dumps(outcome),
-                success,
-                improvement,
-                experiment_id
-            ))
+                SET status = :status, 
+                    completed_at = :completed_at, 
+                    outcome_json = :outcome_json, 
+                    success = :success, 
+                    improvement = :improvement
+                WHERE experiment_id = :experiment_id
+            """), {
+                "status": "completed",
+                "completed_at": utc_now(),
+                "outcome_json": json.dumps(outcome),
+                "success": success,
+                "improvement": improvement,
+                "experiment_id": experiment_id
+            })
             
             # Get experiment details for learning
             exp_row = db.execute(
-                "SELECT * FROM experiments WHERE experiment_id = ?",
-                (experiment_id,)
+                text("SELECT * FROM experiments WHERE experiment_id = :experiment_id"),
+                {"experiment_id": experiment_id}
             ).fetchone()
             
             if exp_row:
                 # Add to in-memory cache
                 exp_data = {
-                    "worker_name": exp_row["worker_name"],
-                    "experiment_name": exp_row["experiment_name"],
-                    "approach": exp_row["approach"],
+                    "worker_name": exp_row[1],  # worker_name column
+                    "experiment_name": exp_row[2],  # experiment_name column
+                    "approach": exp_row[4],  # approach column
                     "completed_at": utc_now(),
                 }
                 
@@ -326,27 +361,18 @@ Propose an experiment that could improve {worker_name}'s performance. Be creativ
         try:
             db = next(get_db())
             
-            db.execute("""
+            db.execute(text("""
                 UPDATE experiments 
-                SET promoted_to_production = 1, promoted_at = ?
-                WHERE experiment_id = ?
-            """, (utc_now(), experiment_id))
+                SET promoted_to_production = TRUE, promoted_at = :promoted_at
+                WHERE experiment_id = :experiment_id
+            """), {
+                "promoted_at": utc_now(),
+                "experiment_id": experiment_id
+            })
             
             db.commit()
             
             logger.info(f"🌟 Promoted experiment {experiment_id} to production!")
-            
-            # Log event
-            db.execute(
-                "INSERT INTO event_log (ts, worker, event, details) VALUES (?, ?, ?, ?)",
-                (
-                    utc_now(),
-                    experiment["worker_name"],
-                    "experiment_promoted",
-                    f"Experiment {experiment['experiment_name']} promoted to production"
-                )
-            )
-            db.commit()
             
         except Exception as e:
             logger.error(f"Failed to promote experiment: {e}")
@@ -360,21 +386,21 @@ Propose an experiment that could improve {worker_name}'s performance. Be creativ
         try:
             db = next(get_db())
             
-            rows = db.execute("""
+            rows = db.execute(text("""
                 SELECT * FROM experiments 
-                WHERE worker_name = ? 
-                  AND promoted_to_production = 1
+                WHERE worker_name = :worker_name 
+                  AND promoted_to_production = TRUE
                 ORDER BY promoted_at DESC
-            """, (worker_name,)).fetchall()
+            """), {"worker_name": worker_name}).fetchall()
             
             return [
                 {
-                    "experiment_id": row["experiment_id"],
-                    "experiment_name": row["experiment_name"],
-                    "approach": row["approach"],
-                    "improvement": row["improvement"],
-                    "promoted_at": row["promoted_at"],
-                    "outcome_json": json.loads(row["outcome_json"]) if row["outcome_json"] else {}
+                    "experiment_id": row[0],  # experiment_id column
+                    "experiment_name": row[2],  # experiment_name column
+                    "approach": row[4],  # approach column
+                    "improvement": row[11],  # improvement column
+                    "promoted_at": row[13],  # promoted_at column
+                    "outcome_json": json.loads(row[12]) if row[12] else {}
                 }
                 for row in rows
             ]
@@ -391,10 +417,10 @@ Propose an experiment that could improve {worker_name}'s performance. Be creativ
             # Overall stats
             total = db.execute("SELECT COUNT(*) as count FROM experiments").fetchone()["count"]
             successful = db.execute(
-                "SELECT COUNT(*) as count FROM experiments WHERE success = 1"
+                "SELECT COUNT(*) as count FROM experiments WHERE success = TRUE"
             ).fetchone()["count"]
             promoted = db.execute(
-                "SELECT COUNT(*) as count FROM experiments WHERE promoted_to_production = 1"
+                "SELECT COUNT(*) as count FROM experiments WHERE promoted_to_production = TRUE"
             ).fetchone()["count"]
             
             # Per-worker stats
@@ -402,8 +428,8 @@ Propose an experiment that could improve {worker_name}'s performance. Be creativ
             rows = db.execute("""
                 SELECT worker_name, 
                        COUNT(*) as total,
-                       SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful,
-                       AVG(CASE WHEN success = 1 THEN improvement ELSE 0 END) as avg_improvement
+                       SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as successful,
+                       AVG(CASE WHEN success = TRUE THEN improvement ELSE 0 END) as avg_improvement
                 FROM experiments
                 GROUP BY worker_name
             """).fetchall()
@@ -417,9 +443,9 @@ Propose an experiment that could improve {worker_name}'s performance. Be creativ
                 }
             
             return {
-                "total_experiments": total,
-                "successful_experiments": successful,
-                "promoted_experiments": promoted,
+                "total_experiments": int(total) if total else 0,
+                "successful_experiments": int(successful) if successful else 0,
+                "promoted_experiments": int(promoted) if promoted else 0,
                 "overall_success_rate": successful / total if total > 0 else 0,
                 "evolution_rate": self.evolution_rate,
                 "by_worker": worker_stats,

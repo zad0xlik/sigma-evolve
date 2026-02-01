@@ -1,0 +1,111 @@
+/* Google Fonts - JetBrains Mono */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 174 100% 50%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 174 100% 50%;
+    --radius: 0.5rem;
+  }
+
+  body {
+    @apply bg-[#0a0a0a] text-gray-100 font-mono;
+    font-feature-settings: "liga" 1, "calt" 1;
+  }
+
+  /* Terminal-style scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #111111;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 255, 200, 0.3);
+    border-radius: 5px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 255, 200, 0.5);
+  }
+
+  /* Selection */
+  ::selection {
+    background: rgba(0, 255, 200, 0.3);
+    color: #00FFC8;
+  }
+
+  /* Smooth transitions */
+  * {
+    transition: color 0.2s, background-color 0.2s, border-color 0.2s;
+  }
+}
+
+@layer components {
+  .terminal-border {
+    @apply border border-[#00FFC8] rounded-md;
+  }
+
+  .terminal-card {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    @apply rounded-lg p-4 transition-all duration-300;
+  }
+
+  .terminal-card:hover {
+    border-color: #00FFC8;
+  }
+
+  .glow-text {
+    color: #00FFC8;
+    text-shadow: 0 0 10px #00FFC8;
+  }
+
+  .terminal-prompt::before {
+    content: '$ ';
+    color: #FFD700;
+  }
+
+  .tab-content {
+    @apply mt-8;
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-slideDown {
+    animation: slideDown 0.2s ease-out;
+  }
+}

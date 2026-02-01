@@ -15,6 +15,11 @@ from .base_worker import BaseWorker
 from ..agent_config import get_agent_config
 from ..models import Project, Proposal, LearnedPattern, CrossProjectLearning
 from ..database import get_db
+from ..utils.graphiti import (
+    get_graphiti_client_sync,
+    search_decisions,
+    get_decision_history,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +27,9 @@ logger = logging.getLogger(__name__)
 class RecallWorker(BaseWorker):
     """Retrieves relevant context from knowledge graph and past experiences."""
     
-    def __init__(self, db_session, dreamer):
-        super().__init__(db_session, dreamer)
+    def __init__(self, db_session, dreamer, project_id=None):
+        super().__init__(db_session, dreamer, project_id)
+        self.project_id = project_id
         self.config = get_agent_config()
         self.current_strategy = "semantic_search_with_filters"
     
@@ -122,9 +128,9 @@ class RecallWorker(BaseWorker):
             # Record outcome
             self.dreamer.record_outcome(
                 experiment_id=exp_id,
-                success=improvement > 0,
-                improvement=improvement,
-                details={
+                outcome={
+                    "success": improvement > 0,
+                    "improvement": improvement,
                     "result_metrics": result,
                     "baseline_metrics": context_perf,
                     "elapsed_time": elapsed
@@ -195,7 +201,7 @@ class RecallWorker(BaseWorker):
     def _find_similar_patterns(self, change_type: str, project_id: int) -> List[Dict]:
         """Find learned patterns matching the change type"""
         # Get project to determine language/framework
-        project = self.db.query(Project).get(project_id)
+        project = self.db.get(Project, project_id)
         if not project:
             return []
         
@@ -249,7 +255,7 @@ class RecallWorker(BaseWorker):
         # Get cross-project learnings
         learnings = self.db.query(CrossProjectLearning)\
             .filter(CrossProjectLearning.target_project_id == project_id)\
-            .filter(CrossProjectLearning.similarity_score >= self.config.cross_project.min_language_similarity)\
+            .filter(CrossProjectLearning.similarity_score >= self.config.cross_project.similarity_threshold_language)\
             .order_by(CrossProjectLearning.similarity_score.desc())\
             .limit(5)\
             .all()
@@ -271,17 +277,172 @@ class RecallWorker(BaseWorker):
     
     def _query_knowledge_graph(self, proposal: Proposal) -> Dict:
         """Query Graphiti knowledge graph for relevant context"""
-        # TODO: Integrate with Graphiti to query for:
-        # - Related code entities
-        # - Past decisions
-        # - Dependencies
-        # - Similar code patterns
+        try:
+            client = get_graphiti_client_sync()
+            
+            if not client:
+                logger.debug("Graphiti client not available, skipping knowledge graph query")
+                return {
+                    'entities': [],
+                    'relationships': [],
+                    'relevant_facts': [],
+                    'query_status': 'unavailable'
+                }
+            
+            # Parse proposal details to build search query
+            changes = json.loads(proposal.changes_json)
+            change_type = changes.get('change_type', 'unknown')
+            description = changes.get('description', '')
+            
+            # Build search query based on proposal content
+            search_query = self._build_graphiti_search_query(change_type, description)
+            
+            if not search_query:
+                return {
+                    'entities': [],
+                    'relationships': [],
+                    'relevant_facts': [],
+                    'query_status': 'empty_query'
+                }
+            
+            logger.info(f"Querying knowledge graph with: '{search_query}'")
+            
+            # Search for relevant decisions and facts in the knowledge graph
+            # We'll use a sync wrapper since this worker is synchronous
+            import asyncio
+            
+            # Create an event loop if one doesn't exist
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            # Run async search
+            search_results = loop.run_until_complete(
+                search_decisions(
+                    query=search_query,
+                    limit=10
+                )
+            )
+            
+            # Extract entities and relationships from results
+            entities = []
+            relationships = []
+            facts = []
+            
+            for result in search_results:
+                fact_text = result.get('fact', '')
+                
+                # Parse fact to extract entities
+                # Simple pattern matching for common entity types
+                if 'decision' in fact_text.lower():
+                    entities.append({
+                        'type': 'DECISION',
+                        'content': fact_text,
+                        'score': result.get('score', 1.0)
+                    })
+                    facts.append({
+                        'type': 'decision',
+                        'content': fact_text,
+                        'score': result.get('score', 1.0)
+                    })
+                elif 'pattern' in fact_text.lower():
+                    entities.append({
+                        'type': 'PATTERN',
+                        'content': fact_text,
+                        'score': result.get('score', 1.0)
+                    })
+                    facts.append({
+                        'type': 'pattern',
+                        'content': fact_text,
+                        'score': result.get('score', 1.0)
+                    })
+                elif 'project' in fact_text.lower():
+                    entities.append({
+                        'type': 'PROJECT',
+                        'content': fact_text,
+                        'score': result.get('score', 1.0)
+                    })
+                elif 'library' in fact_text.lower() or 'dependency' in fact_text.lower():
+                    entities.append({
+                        'type': 'LIBRARY',
+                        'content': fact_text,
+                        'score': result.get('score', 1.0)
+                    })
+                    facts.append({
+                        'type': 'dependency',
+                        'content': fact_text,
+                        'score': result.get('score', 1.0)
+                    })
+                else:
+                    # General entity
+                    entities.append({
+                        'type': 'UNKNOWN',
+                        'content': fact_text,
+                        'score': result.get('score', 1.0)
+                    })
+            
+            logger.info(f"Knowledge graph query complete: {len(entities)} entities, {len(facts)} facts found")
+            
+            return {
+                'entities': entities,
+                'relationships': relationships,
+                'relevant_facts': facts,
+                'query_status': 'success',
+                'search_query': search_query,
+                'total_results': len(search_results)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error querying knowledge graph: {e}")
+            return {
+                'entities': [],
+                'relationships': [],
+                'relevant_facts': [],
+                'query_status': 'error',
+                'error': str(e)
+            }
+    
+    def _build_graphiti_search_query(self, change_type: str, description: str) -> str:
+        """
+        Build a search query for Graphiti knowledge graph.
         
-        return {
-            'entities': [],
-            'relationships': [],
-            'relevant_facts': []
+        Examples:
+        - "decision about database migration"
+        - "pattern for authentication"
+        - "dependency on redis cache"
+        """
+        # Map change types to knowledge graph queries
+        type_to_query = {
+            'database_migration': 'database migration decision',
+            'authentication': 'authentication pattern',
+            'caching': 'caching strategy',
+            'api_design': 'API design decision',
+            'library_change': 'library dependency',
+            'architecture': 'architecture decision',
+            'performance': 'performance optimization',
+            'security': 'security pattern',
         }
+        
+        # Use specific query if available, otherwise build from description
+        if change_type in type_to_query:
+            query = type_to_query[change_type]
+        elif description:
+            # Extract keywords from description
+            keywords = []
+            for word in description.lower().split():
+                if len(word) > 3 and word not in ['with', 'from', 'that', 'this', 'the', 'and', 'for']:
+                    keywords.append(word)
+            
+            if keywords:
+                query = f"{' '.join(keywords[:3])} decision pattern"
+            else:
+                query = change_type
+        else:
+            query = change_type
+        
+        return query
     
     def _enrich_proposal_with_context(self, proposal: Proposal, context: Dict):
         """Store enriched context with the proposal"""
@@ -294,6 +455,37 @@ class RecallWorker(BaseWorker):
             self.db.commit()
             
             logger.info(f"Enriched proposal {proposal.proposal_id} with {len(context['similar_patterns'])} patterns")
+        
+        # Broadcast context enrichment quality
+        context_quality = {
+            'patterns_found': len(context['similar_patterns']),
+            'past_proposals_found': len(context['past_proposals']),
+            'cross_project_insights': len(context['cross_project_insights']),
+            'knowledge_graph_facts': len(context.get('knowledge_graph_context', {}).get('relevant_facts', []))
+        }
+        
+        self._broadcast_knowledge(
+            knowledge_type='context_enrichment',
+            content={
+                'proposal_id': proposal.proposal_id,
+                'quality_metrics': context_quality,
+                'enrichment_timestamp': context['retrieval_timestamp'].isoformat() if context.get('retrieval_timestamp') else None
+            },
+            urgency='low'
+        )
+        
+        # Broadcast knowledge retrieval patterns
+        if context.get('knowledge_graph_context', {}).get('query_status') == 'success':
+            self._broadcast_knowledge(
+                knowledge_type='knowledge_retrieval',
+                content={
+                    'query': context['knowledge_graph_context'].get('search_query', ''),
+                    'results_found': context['knowledge_graph_context'].get('total_results', 0),
+                    'retrieval_time': 0.5,  # Would track actual time
+                    'query_status': 'success'
+                },
+                urgency='low'
+            )
     
     def _format_context_summary(self, context: Dict) -> str:
         """Format context into human-readable summary"""
@@ -317,7 +509,20 @@ class RecallWorker(BaseWorker):
             for insight in context['cross_project_insights'][:2]:
                 parts.append(f"  - {insight['pattern_name']} from project #{insight['source_project_id']}")
         
+        # Knowledge graph context
+        kg_context = context.get('knowledge_graph_context', {})
+        if kg_context and kg_context.get('query_status') == 'success':
+            facts = kg_context.get('relevant_facts', [])
+            if facts:
+                parts.append(f"\nKnowledge graph facts: {len(facts)}")
+                for fact in facts[:3]:
+                    parts.append(f"  - {fact['content'][:80]}..." if len(fact['content']) > 80 else f"  - {fact['content']}")
+        
         return "\n".join(parts) if parts else ""
+    
+    def _get_experiment_context(self) -> Dict:
+        """Get context for experiment proposal"""
+        return self._get_current_performance()
     
     def _get_current_performance(self) -> Dict:
         """Get recent performance metrics for experiment baseline"""

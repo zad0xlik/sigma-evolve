@@ -193,6 +193,9 @@ cd sigma-evolve
 
 # Configure environment
 cp .env.example .env
+
+cd src/openmemory && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
 # Edit .env with your settings:
 #   - LLM_PROVIDER: openai, openrouter, or ollama
 #   - MODEL: your preferred model (e.g., gpt-4o-mini, openai/gpt-4o-mini)

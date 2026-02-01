@@ -23,11 +23,15 @@
         import { dashboardApp } from '/static/js/dashboard.js';
         import { projectForm } from '/static/js/forms/projectForm.js';
         import { workerForm } from '/static/js/forms/workerForm.js';
+        import { graphVisualization } from '/static/js/graph.js';
+        import { createWorkerLogsComponent } from '/static/js/workerLogs.js';
         
         // Register components globally (for x-data to find them)
         window.dashboardApp = dashboardApp;
         window.projectForm = projectForm;
         window.workerForm = workerForm;
+        window.graphVisualization = graphVisualization;
+        window.createWorkerLogsComponent = createWorkerLogsComponent;
     </script>
     
     <!-- Alpine.js - Loads AFTER modules are registered -->
@@ -68,6 +72,8 @@
             <button class="tab" :class="{ active: currentTab === 'experiments' }" @click="switchTab('experiments')">🧪 Experiments</button>
             <button class="tab" :class="{ active: currentTab === 'workers' }" @click="switchTab('workers')">⚙️ Workers</button>
             <button class="tab" :class="{ active: currentTab === 'patterns' }" @click="switchTab('patterns')">🧬 Patterns</button>
+            <button class="tab" :class="{ active: currentTab === 'logs' }" @click="switchTab('logs')">📡 Live Logs</button>
+            <button class="tab" :class="{ active: currentTab === 'graph' }" @click="switchTab('graph')">🔗 Graph</button>
             <button class="tab" :class="{ active: currentTab === 'projects' }" @click="switchTab('projects')">📁 Projects</button>
         </div>
 
@@ -143,7 +149,7 @@
         </div>
 
         <!-- Workers Tab -->
-        <div x-show="currentTab === 'workers'" class="content-section" x-transition>
+        <div x-show="currentTab === 'workers'" class="content-section" x-transition x-init="$nextTick(() => { const form = $el.querySelector('[x-data*=workerForm]'); if (form) { const formData = Alpine.$data(form); if (formData && formData.populateProjectsDropdown) formData.populateProjectsDropdown(); } })">
             <h2>Worker Statistics</h2>
             
             <!-- Worker Control Form -->
@@ -170,11 +176,8 @@
                         <!-- Project -->
                         <div class="form-group">
                             <label class="form-label">Project *</label>
-                            <select x-model.number="form.project_id" class="form-select" :class="{ error: errors.project_id }">
+                            <select x-model.number="form.project_id" class="form-select" :class="{ error: errors.project_id }" x-ref="projectSelect">
                                 <option value="">Select project...</option>
-                                <template x-for="project in projects" :key="project.project_id">
-                                    <option :value="project.project_id" x-text="getProjectName(project.project_id)"></option>
-                                </template>
                             </select>
                             <div x-show="errors.project_id" class="form-error" x-text="errors.project_id"></div>
                             <div class="form-help">Choose the project for this worker to analyze</div>
@@ -203,6 +206,9 @@
                         <div class="form-group">
                             <button type="submit" class="btn btn-primary" :disabled="isSubmitting">
                                 <span x-text="isSubmitting ? 'Starting...' : 'Start Worker'"></span>
+                            </button>
+                            <button type="button" class="btn btn-secondary" @click="startAllWorkers()" :disabled="isSubmitting || !form.project_id">
+                                <span x-text="isSubmitting ? 'Starting All...' : '🚀 Start All Workers'"></span>
                             </button>
                         </div>
                     </form>
@@ -277,6 +283,142 @@
                     <div class="timestamp" x-text="`Created: ${formatDate(pattern.created_at)}`"></div>
                 </div>
             </template>
+        </div>
+
+        <!-- Live Logs Tab -->
+        <div x-show="currentTab === 'logs'" class="content-section" x-transition>
+            <div x-data="createWorkerLogsComponent()" x-init="init()">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin: 0;">🔴 Live Worker Logs</h2>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span :class="connected ? 'text-green-400' : 'text-red-400'" x-text="connected ? '● Connected' : '○ Disconnected'"></span>
+                        <button class="btn btn-secondary" @click="clearLogs()">🗑️ Clear</button>
+                        <button class="btn btn-secondary" @click="exportLogs()">💾 Export</button>
+                        <button class="btn btn-primary" @click="toggleAutoScroll()" x-text="autoScroll ? '⏸ Pause Scroll' : '▶ Auto Scroll'"></button>
+                    </div>
+                </div>
+                
+                <!-- Filters -->
+                <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;">
+                    <div>
+                        <label style="font-weight: 600; margin-right: 8px;">Level:</label>
+                        <select x-model="filterLevel" style="padding: 6px 12px; border: 1px solid #ddd; border-radius: 4px; background: white;">
+                            <option value="all">All Levels</option>
+                            <option value="info">Info</option>
+                            <option value="warning">Warning</option>
+                            <option value="error">Error</option>
+                            <option value="debug">Debug</option>
+                            <option value="experiment">Experiment</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label style="font-weight: 600; margin-right: 8px;">Worker:</label>
+                        <select x-model="filterWorker" style="padding: 6px 12px; border: 1px solid #ddd; border-radius: 4px; background: white;">
+                            <option value="all">All Workers</option>
+                            <template x-for="worker in workers" :key="worker">
+                                <option :value="worker" x-text="worker"></option>
+                            </template>
+                        </select>
+                    </div>
+                    
+                    <div style="margin-left: auto; display: flex; align-items: center;">
+                        <span style="color: #666; font-size: 0.9em;" x-text="`${filteredLogs.length} logs shown (${logs.length} total)`"></span>
+                    </div>
+                </div>
+                
+                <!-- Logs Container (Terminal-like) -->
+                <div 
+                    x-ref="logsContainer" 
+                    style="
+                        background: #1e1e1e;
+                        color: #d4d4d4;
+                        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+                        font-size: 13px;
+                        height: 600px;
+                        overflow-y: auto;
+                        padding: 15px;
+                        border-radius: 8px;
+                        border: 2px solid #333;
+                        line-height: 1.6;
+                    "
+                >
+                    <template x-if="filteredLogs.length === 0">
+                        <div style="color: #888; text-align: center; padding: 50px;">
+                            <div style="font-size: 3em; margin-bottom: 20px;">📡</div>
+                            <div>Waiting for worker logs...</div>
+                            <div style="font-size: 0.9em; margin-top: 10px;">Start a worker to see live activity</div>
+                        </div>
+                    </template>
+                    
+                    <template x-for="(log, index) in filteredLogs" :key="index">
+                        <div style="margin-bottom: 8px; padding: 6px 0; border-bottom: 1px solid #2a2a2a;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <!-- Timestamp -->
+                                <span style="color: #6a9fb5; flex-shrink: 0;" x-text="formatTime(log.timestamp)"></span>
+                                
+                                <!-- Worker Badge -->
+                                <span 
+                                    :class="getWorkerBadgeClass(log.worker)"
+                                    style="padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; flex-shrink: 0; text-transform: uppercase;"
+                                    x-text="log.worker"
+                                ></span>
+                                
+                                <!-- Level Icon -->
+                                <span style="flex-shrink: 0;" x-text="getLevelIcon(log.level)"></span>
+                                
+                                <!-- Message -->
+                                <span 
+                                    :class="getLevelClass(log.level)"
+                                    style="flex: 1; word-break: break-word;"
+                                    x-text="log.message"
+                                ></span>
+                            </div>
+                            
+                            <!-- Metadata (if present) -->
+                            <template x-if="log.metadata && Object.keys(log.metadata).length > 0">
+                                <div style="margin-top: 4px; margin-left: 40px; font-size: 11px; color: #888;">
+                                    <template x-for="(value, key) in log.metadata" :key="key">
+                                        <span style="margin-right: 15px;">
+                                            <span style="color: #9cdcfe;" x-text="key"></span>:
+                                            <span style="color: #ce9178;" x-text="typeof value === 'object' ? JSON.stringify(value) : value"></span>
+                                        </span>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+                
+                <!-- Connection Info -->
+                <div style="margin-top: 15px; padding: 12px; background: #f8f9fa; border-radius: 6px; font-size: 0.9em; color: #666;">
+                    <strong>💡 Tip:</strong> Logs stream in real-time via Server-Sent Events (SSE). 
+                    The connection auto-reconnects if dropped. Use filters to focus on specific workers or log levels.
+                </div>
+            </div>
+        </div>
+
+        <!-- Graph Tab -->
+        <div x-show="currentTab === 'graph'" class="content-section" x-transition>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0;">Project-Pattern Relationship Graph</h2>
+                <button class="btn btn-primary" @click="refreshGraph()">🔄 Refresh Graph</button>
+            </div>
+            
+            <p style="color: #666; margin-bottom: 20px;">
+                Visualizing how patterns are learned from projects and where they can be applied across the codebase. 
+                Blue nodes are projects, green nodes are learned patterns.
+            </p>
+            
+            <!-- Graph Container -->
+            <div x-data="graphVisualization()" x-init="init()" style="position: relative;">
+                <div x-show="loading" class="loading" style="text-align: center; padding: 50px;">
+                    <div class="spinner" style="margin: 0 auto;"></div>
+                    <p style="margin-top: 20px;">Loading graph data...</p>
+                </div>
+                
+                <div x-show="!loading" id="graph-container" style="width: 100%; height: 600px; position: relative; background: #fafafa; border-radius: 8px; border: 1px solid #ddd;"></div>
+            </div>
         </div>
 
         <!-- Projects Tab -->
@@ -387,6 +529,9 @@
                         <template x-if="project.last_analyzed">
                             <span x-text="` | Last analyzed: ${formatDate(project.last_analyzed)}`"></span>
                         </template>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <button class="btn btn-reject" @click="deleteProject(project.project_id, project.repo_url)" title="Delete project and all related data">🗑️ Delete Project</button>
                     </div>
                 </div>
             </template>

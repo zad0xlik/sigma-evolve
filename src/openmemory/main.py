@@ -7,7 +7,6 @@ from app.config import DEFAULT_APP_ID, USER_ID
 from app.database import Base, SessionLocal, engine
 from app.mcp_server import setup_mcp_server
 from app.models import App, User
-from app.routers import agents_router, apps_router, backup_router, config_router, memories_router, stats_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -28,7 +27,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Create all tables
+# Import routers after app is created to avoid circular imports
+from app.routers import agents_router, apps_router, backup_router, config_router, memories_router, stats_router
+from app.routers.knowledge_exchange import router as knowledge_exchange_router
+from app.routers.conflict_resolution import router as conflict_resolution_router
+
+# Create all tables after all models are imported
 Base.metadata.create_all(bind=engine)
 
 # Check for USER_ID and create default user if needed
@@ -121,6 +125,8 @@ app.include_router(stats_router)
 app.include_router(config_router)
 app.include_router(backup_router)
 app.include_router(agents_router)
+app.include_router(knowledge_exchange_router)
+app.include_router(conflict_resolution_router)
 
 # Add pagination support
 add_pagination(app)

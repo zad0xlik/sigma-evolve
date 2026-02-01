@@ -101,6 +101,9 @@ export function dashboardApp() {
                     : 0;
                 this.stats.successRate = successRate + '%';
                 this.stats.totalPatterns = data.total_patterns;
+                
+                // Always load projects so worker form has them available
+                this.projects = await api.getProjects();
             } catch (error) {
                 console.error('Error loading stats:', error);
             }
@@ -118,9 +121,16 @@ export function dashboardApp() {
                         break;
                     case 'workers':
                         this.workers = await api.getWorkerStats();
+                        // Ensure projects are loaded for worker form dropdown
+                        if (this.projects.length === 0) {
+                            this.projects = await api.getProjects();
+                        }
                         break;
                     case 'patterns':
                         this.patterns = await api.getPatterns();
+                        break;
+                    case 'graph':
+                        // Graph loads itself via its own component
                         break;
                     case 'projects':
                         this.projects = await api.getProjects();
@@ -129,6 +139,13 @@ export function dashboardApp() {
             } catch (error) {
                 console.error(`Error loading ${this.currentTab}:`, error);
             }
+        },
+        
+        // Refresh graph visualization
+        async refreshGraph() {
+            // Trigger graph refresh by dispatching event
+            window.dispatchEvent(new CustomEvent('refresh-graph'));
+            utils.info('Refreshing graph...');
         },
         
         // Approve/reject proposal
@@ -158,6 +175,31 @@ export function dashboardApp() {
             } catch (error) {
                 console.error('Error viewing proposal:', error);
                 utils.error('Failed to load proposal details');
+            }
+        },
+        
+        // Delete project
+        async deleteProject(projectId, repoUrl) {
+            if (!confirm(`Are you sure you want to delete project '${repoUrl}'?\n\nThis will delete:\n- Project record\n- All proposals\n- All snapshots\n- All worker stats\n- Cross-project learnings\n\nThis action cannot be undone!`)) {
+                return;
+            }
+            
+            try {
+                const result = await api.deleteProject(projectId);
+                if (result.success) {
+                    // Remove from local array immediately for instant UI update
+                    this.projects = this.projects.filter(p => p.project_id !== projectId);
+                    
+                    utils.success(`Project deleted successfully`);
+                    
+                    // Update stats
+                    await this.loadStats();
+                } else {
+                    utils.error('Failed to delete project');
+                }
+            } catch (error) {
+                console.error('Error deleting project:', error);
+                utils.error('Failed to delete project');
             }
         },
         
@@ -224,6 +266,23 @@ export function dashboardApp() {
         // Get badge class
         getBadgeClass(status) {
             return `badge-${status}`;
+        },
+        
+        // Get project name (for worker form dropdown)
+        getProjectName(project) {
+            if (!project) return 'Unknown';
+            
+            try {
+                const url = new URL(project.repo_url);
+                const parts = url.pathname.split('/').filter(p => p);
+                if (parts.length >= 2) {
+                    return `${parts[0]}/${parts[1].replace('.git', '')}`;
+                }
+            } catch (e) {
+                return project.repo_url;
+            }
+            
+            return project.repo_url;
         }
     };
 }

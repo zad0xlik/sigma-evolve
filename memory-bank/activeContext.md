@@ -1,29 +1,168 @@
 # Active Context: SIGMA - Multi-Agent System for Code Evolution
 
-## 🚨 CRITICAL PRIORITY: Database Schema Mismatch
+## ✅ RESOLVED: Three Critical Bugs Fixed (January 16, 2026)
 
-**Issue:** The `learned_patterns` table is missing the `code_template` column, causing 500 errors on the patterns API endpoint.
+### Bug #1: Language Case Sensitivity in Analysis Worker ✅
 
-**Impact:** 
-- Dashboard "Patterns" tab cannot load data
-- Pattern learning functionality broken
-- Blocks testing of multi-agent system
+**Issue:** Analysis worker showed "Analysis not yet implemented for Python" warning even for Python projects.
 
-**Root Cause:**
-- Migration file `add_agent_system_tables.py` was updated to include `code_template` column
-- Database has NOT been re-migrated with the updated schema
-- API expects column that doesn't exist in the actual database
+**Root Cause:** Code checked `if language != "python"` but database stored "Python" (capital P).
 
-**Required Actions:**
-1. Drop and recreate database OR run migration repair
-2. Verify all 7 agent tables have correct schema
-3. Test patterns API endpoint returns 200 OK
-4. Verify dashboard Patterns tab loads successfully
+**Fix Applied:**
+- File: `src/openmemory/app/agents/analysis_worker.py` (line 184)
+- Changed to: `if language.lower() != "python"`
+- Impact: Analysis worker now correctly processes Python projects regardless of capitalization
 
-**Files Involved:**
-- `src/openmemory/alembic/versions/add_agent_system_tables.py` (migration)
-- `src/openmemory/app/models.py` (LearnedPattern model)
-- `src/openmemory/app/routers/agents.py` (patterns endpoint)
+**Verification:** ✅ Analysis worker successfully processed Python project and created 3 code snapshots.
+
+---
+
+### Bug #2: Dream Worker Only Generated Placeholders ✅
+
+**Issue:** Dream worker created proposals with metadata but no actual code changes (empty `code_changes` field).
+
+**Root Cause:** Methods `_generate_error_fix_proposal()` and `_generate_warning_fix_proposal()` returned placeholder data without calling the LLM.
+
+**Fix Applied:**
+- File: `src/openmemory/app/agents/dream_worker.py` (COMPLETE REWRITE)
+- Added LLM integration to both error and warning fix methods
+- Implemented `_read_affected_files()` helper to provide code context
+- Created structured prompts requesting JSON responses
+- Temperature tuning: 0.3 for precise error fixes, 0.4 for creative improvements
+- Code context extraction: 10 lines for errors (5 before/after), 6 lines for warnings (3 before/after)
+- Comprehensive error handling with graceful fallback to placeholders
+
+**Key Changes:**
+```python
+# Added imports
+import os
+from pathlib import Path
+from ..utils.categorization import get_openai_client
+
+# New helper method
+def _read_affected_files(self, workspace_path: str, issues: List[Dict]) -> Dict[str, str]:
+    """Read the contents of files affected by issues."""
+    # Reads up to 5 unique files for errors, 10 for warnings
+
+# Enhanced methods with actual LLM calls
+def _generate_error_fix_proposal(self, issues: List[Dict], snapshot: CodeSnapshot) -> Optional[Dict]:
+    # Now calls LLM with structured prompts
+    # Returns actual code changes, not placeholders
+```
+
+**Verification:** ✅ Syntax check passed (`uv run python -m py_compile`), ready for testing.
+
+---
+
+### Bug #3: Workspace Path Hardcoded in Project Creation ✅
+
+**Issue:** Analysis worker couldn't find workspace because API ignored user-provided path and hardcoded `/workspace/{repo_name}`.
+
+**Root Cause:** In `src/openmemory/app/routers/agents.py`, the `create_project()` endpoint extracted repo name and constructed a hardcoded path instead of using user input.
+
+**Fix Applied:**
+- File: `src/openmemory/app/routers/agents.py` (lines 37-42, 242-255)
+- Added `workspace_path` as required field in `ProjectCreateRequest` schema
+- Removed hardcoded path generation logic
+- Changed to use `request.workspace_path` directly
+
+**Before:**
+```python
+class ProjectCreateRequest(BaseModel):
+    repo_url: str
+    branch: str = "main"
+    language: str
+    # workspace_path was MISSING
+
+# In create_project():
+repo_name = request.repo_url.rstrip('/').split('/')[-1].replace('.git', '')
+workspace_path = f"/workspace/{repo_name}"  # HARDCODED!
+```
+
+**After:**
+```python
+class ProjectCreateRequest(BaseModel):
+    repo_url: str
+    branch: str = "main"
+    workspace_path: str  # ADDED as required field
+    language: str
+
+# In create_project():
+new_project = Project(
+    workspace_path=request.workspace_path,  # Use user input
+    # ... other fields
+)
+```
+
+**Verification:** ✅ Created new project with correct local path (`/Users/fedor/IdeaProjects/mcp-memory-server-sigma`), analysis worker successfully found workspace and created code snapshots.
+
+---
+
+## ✅ RESOLVED: Database Schema Fixed (January 16, 2026)
+
+**Issue:** The agent system tables had never been migrated to the database.
+
+**Resolution:**
+- Ran `alembic upgrade head` to apply the `add_agent_system` migration
+- All 7 agent tables created successfully with correct schema
+- `learned_patterns` table now has the `code_template` column (verified via SQLite)
+
+**Verified:**
+- ✅ Migration status: `add_agent_system (head)`
+- ✅ All 7 tables exist: projects, code_snapshots, proposals, experiments, learned_patterns, cross_project_learnings, worker_stats
+- ✅ `learned_patterns.code_template` column present (VARCHAR, nullable)
+
+---
+
+## Recent Work (January 17, 2026)
+
+### Graph Visualization & Dashboard Enhancements ✅
+
+**Status:** COMPLETE - Knowledge graph visualization integrated into dashboard
+
+**What Was Built:**
+
+1. **Graph Visualization Tab** ✅
+   - Added new "Graph" tab to dashboard with D3.js force-directed graph
+   - Visualizes cross-project learnings from database
+   - Nodes: Source/target projects with color coding
+   - Edges: Similarity scores with weighted lines
+   - Interactive: Drag nodes, hover for details, zoom/pan
+   - Real-time data from `/api/agents/graph` endpoint
+
+2. **Database Schema Fix** ✅
+   - Issue: `cross_project_learnings` table missing `similarity_score` column
+   - Created migration: `fix_cross_project_learnings_schema.py`
+   - Added `similarity_score FLOAT` column for edge weights
+   - Ran `alembic upgrade head` successfully
+
+3. **Project Dropdown Fix** ✅
+   - Issue: Projects tab dropdown wasn't showing project list
+   - Root cause: Alpine.js scope issue - `$root` not accessible in nested x-for
+   - Solution: Used `$root` directly in template, added `formatProjectId()` helper
+   - Result: Dropdown now correctly displays all projects
+
+4. **Worker Testing & Bug Fix** ✅
+   - Started analysis worker for project 1 (sigma-evolve)
+   - Discovered error: `DreamerMetaAgent.record_experiment_start() got unexpected keyword argument 'experiment_name'`
+   - Root cause: Method signature mismatch in `analysis_worker.py` line 106-111
+   - Fix: Pass full `experiment` dict instead of unpacking fields
+   - Result: Worker now executes experimental cycles without errors
+
+5. **Worker Statistics Behavior** ✅
+   - Investigated why worker stats remained empty
+   - Finding: Stats are persisted to database every 10 cycles (by design in `base_worker.py` line 168)
+   - Only ran 1 cycle initially, so no stats written to DB
+   - This is expected behavior for performance optimization
+
+**Files Modified:**
+- `src/openmemory/alembic/versions/fix_cross_project_learnings_schema.py` (created)
+- `src/openmemory/alembic/versions/fix_code_snapshots_schema.py` (created - fixed similar issue)
+- `src/openmemory/static/js/graph.js` (created - D3.js visualization)
+- `src/openmemory/static/dashboard.html` (added Graph tab)
+- `src/openmemory/app/agents/analysis_worker.py` (fixed line 106-111)
+
+**Access:** http://localhost:8020/static/dashboard.html (Graph tab)
 
 ---
 

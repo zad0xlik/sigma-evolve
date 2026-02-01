@@ -151,6 +151,141 @@ class GitOperations:
         except Exception as e:
             logger.error(f"Failed to initialize GitHub repository: {e}")
     
+    @staticmethod
+    def clone_repository(
+        workspace_root: str,
+        repo_url: str,
+        branch: str = "main",
+        force: bool = False,
+    ) -> Dict[str, Any]:
+        """Clone a GitHub repository to the workspace.
+        
+        This is a static method for cloning repos before GitOperations is initialized.
+        
+        Args:
+            workspace_root: Root directory where all projects will be cloned
+            repo_url: GitHub repository URL
+            branch: Branch to clone (default: main)
+            force: If True, delete existing clone and re-clone
+            
+        Returns:
+            {
+                'success': bool,
+                'workspace_path': str,
+                'repo_name': str,
+                'message': str,
+                'commit_sha': str (optional),
+                'already_existed': bool
+            }
+        """
+        if not GIT_AVAILABLE:
+            return {
+                'success': False,
+                'error': 'GitPython not installed',
+                'message': 'GitPython not installed. Install with: pip install gitpython'
+            }
+        
+        try:
+            # Extract repo name from URL
+            # https://github.com/zad0xlik/sigma-evolve.git → sigma-evolve
+            repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
+            
+            # Ensure workspace root exists
+            workspace_path_obj = Path(workspace_root)
+            workspace_path_obj.mkdir(parents=True, exist_ok=True)
+            
+            # Target directory
+            target_path = workspace_path_obj / repo_name
+            
+            # Check if already exists
+            if target_path.exists():
+                if force:
+                    logger.info(f"Force flag set, removing existing: {target_path}")
+                    import shutil
+                    shutil.rmtree(target_path)
+                else:
+                    logger.info(f"Repository already cloned at: {target_path}")
+                    
+                    # Try to get commit SHA from existing repo
+                    try:
+                        existing_repo = Repo(str(target_path))
+                        commit_sha = existing_repo.head.commit.hexsha[:8]
+                    except:
+                        commit_sha = None
+                    
+                    return {
+                        'success': True,
+                        'workspace_path': str(target_path),
+                        'repo_name': repo_name,
+                        'message': f'Repository already exists at {target_path}',
+                        'already_existed': True,
+                        'commit_sha': commit_sha,
+                    }
+            
+            # Clone the repository
+            logger.info(f"Cloning {repo_url} (branch: {branch}) to {target_path}")
+            
+            try:
+                repo = Repo.clone_from(
+                    url=repo_url,
+                    to_path=str(target_path),
+                    branch=branch,
+                    depth=1  # Shallow clone for speed
+                )
+                commit_sha = repo.head.commit.hexsha[:8]
+                
+                logger.info(f"Successfully cloned {repo_name} (commit: {commit_sha})")
+                
+                return {
+                    'success': True,
+                    'workspace_path': str(target_path),
+                    'repo_name': repo_name,
+                    'message': f'Successfully cloned {repo_name}',
+                    'commit_sha': commit_sha,
+                    'already_existed': False,
+                }
+                
+            except GitCommandError as e:
+                # If branch doesn't exist, try 'master' as fallback
+                if branch == 'main' and 'does not' in str(e).lower():
+                    logger.warning(f"Branch 'main' not found, trying 'master'")
+                    repo = Repo.clone_from(
+                        url=repo_url,
+                        to_path=str(target_path),
+                        branch='master',
+                        depth=1
+                    )
+                    commit_sha = repo.head.commit.hexsha[:8]
+                    
+                    return {
+                        'success': True,
+                        'workspace_path': str(target_path),
+                        'repo_name': repo_name,
+                        'message': f'Successfully cloned {repo_name} (used master branch)',
+                        'commit_sha': commit_sha,
+                        'already_existed': False,
+                        'branch_used': 'master',
+                    }
+                else:
+                    raise
+            
+        except GitCommandError as e:
+            logger.error(f"Git clone failed: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'message': f'Failed to clone repository: {e}',
+                'repo_name': repo_name if 'repo_name' in locals() else None,
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error during clone: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e),
+                'message': f'Unexpected error: {e}',
+                'repo_name': repo_name if 'repo_name' in locals() else None,
+            }
+    
     def create_feature_branch(
         self,
         branch_name: str,

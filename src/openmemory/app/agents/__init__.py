@@ -4,8 +4,8 @@ SIGMA Multi-Agent System
 5 specialized workers with dual-mode operation (production + experimental)
 """
 
-from .base_worker import BaseWorker
-from .dreamer import DreamerMetaAgent, WorkerController
+from .base_worker import BaseWorker, WorkerController
+from .dreamer import DreamerMetaAgent
 from .analysis_worker import AnalysisWorker
 from .dream_worker import DreamWorker
 from .recall_worker import RecallWorker
@@ -14,8 +14,8 @@ from .think_worker import ThinkWorker
 
 __all__ = [
     'BaseWorker',
-    'DreamerMetaAgent',
     'WorkerController',
+    'DreamerMetaAgent',
     'AnalysisWorker',
     'DreamWorker',
     'RecallWorker',

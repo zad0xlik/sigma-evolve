@@ -4,7 +4,7 @@ import uuid
 
 import sqlalchemy as sa
 from app.database import Base
-from app.utils.categorization import get_categories_for_memory
+from openmemory.app.utils.categorization import get_categories_for_memory
 from sqlalchemy import (
     JSON,
     UUID,
@@ -354,4 +354,56 @@ class WorkerStats(Base):
     total_time = Column(sa.Float, default=0.0)
     errors = Column(Integer, default=0)
     last_run = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=get_current_utc_time, index=True)
+
+
+# ===== CROSS-WORKER KNOWLEDGE EXCHANGE MODELS =====
+
+class KnowledgeExchange(Base):
+    """Knowledge exchanged between workers"""
+    __tablename__ = "knowledge_exchange"
+    
+    exchange_id = Column(Integer, primary_key=True, autoincrement=True)
+    source_worker = Column(String, nullable=False, index=True)
+    target_worker = Column(String, nullable=True, index=True)
+    knowledge_type = Column(String, nullable=False, index=True)
+    knowledge_data = Column(JSON, nullable=False)
+    metadata_ = Column('metadata', JSON, default=dict)
+    freshness_score = Column(sa.Float, default=1.0, index=True)
+    validation_status = Column(String, default='pending', index=True)
+    created_at = Column(DateTime, default=get_current_utc_time, index=True)
+    processed_at = Column(DateTime, nullable=True, index=True)
+    
+    __table_args__ = (
+        Index('idx_exchange_source_type', 'source_worker', 'knowledge_type'),
+        Index('idx_exchange_target', 'target_worker'),
+    )
+
+
+class WorkerKnowledgeState(Base):
+    """Knowledge state for each worker"""
+    __tablename__ = "worker_knowledge_state"
+    
+    worker_name = Column(String, primary_key=True, index=True)
+    knowledge_snapshot = Column(JSON, default=dict)
+    last_exchange = Column(DateTime, nullable=True, index=True)
+    exchange_count = Column(Integer, default=0)
+    received_knowledge = Column(JSON, default=list)
+    broadcast_knowledge = Column(JSON, default=list)
+    created_at = Column(DateTime, default=get_current_utc_time, index=True)
+    updated_at = Column(DateTime,
+                        default=get_current_utc_time,
+                        onupdate=get_current_utc_time)
+
+
+class KnowledgeValidation(Base):
+    """Validation results for exchanged knowledge"""
+    __tablename__ = "knowledge_validation"
+    
+    validation_id = Column(Integer, primary_key=True, autoincrement=True)
+    exchange_id = Column(Integer, ForeignKey("knowledge_exchange.exchange_id"), nullable=False, index=True)
+    validator_worker = Column(String, nullable=False, index=True)
+    is_valid = Column(Boolean, nullable=True, index=True)
+    validation_score = Column(sa.Float, nullable=True)
+    feedback = Column(String)
     created_at = Column(DateTime, default=get_current_utc_time, index=True)
